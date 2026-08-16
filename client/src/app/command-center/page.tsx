@@ -2,18 +2,76 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 
+const LUCKNOW_PRESETS = [
+  { label: "📍 Live GPS (Auto-Detect)", lat: null, lng: null },
+  { label: "Jankipuram (Zone-3)", lat: 26.9412, lng: 80.9434 },
+  { label: "Aliganj (Zone-3)", lat: 26.8920, lng: 80.9380 },
+  { label: "Gomti Nagar (Zone-4)", lat: 26.8500, lng: 80.9980 },
+  { label: "Hazratganj (Zone-1)", lat: 26.8467, lng: 80.9462 },
+  { label: "Indira Nagar (Zone-7)", lat: 26.8850, lng: 80.9950 },
+  { label: "Chowk (Zone-6)", lat: 26.8680, lng: 80.9040 },
+  { label: "Ashiyana (Zone-8)", lat: 26.7920, lng: 80.9120 },
+  { label: "Alambagh (Zone-5)", lat: 26.8080, lng: 80.9020 },
+  { label: "Aishbagh (Zone-2)", lat: 26.8350, lng: 80.9150 },
+];
+
 export default function CommandCenter() {
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
 
+  // Geolocation state
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [locationStatus, setLocationStatus] = useState<string>("Detecting GPS...");
+  const [isDetectingLoc, setIsDetectingLoc] = useState<boolean>(false);
+  const [selectedPreset, setSelectedPreset] = useState<string>("📍 Live GPS (Auto-Detect)");
+
+  // Acquire live GPS position
+  const detectLiveLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationStatus("Geolocation not supported by browser");
+      return;
+    }
+    setIsDetectingLoc(true);
+    setLocationStatus("Acquiring GPS fix...");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const userLat = pos.coords.latitude;
+        const userLng = pos.coords.longitude;
+        setCoords({ lat: userLat, lng: userLng });
+        setLocationStatus(`📍 GPS: ${userLat.toFixed(4)}°N, ${userLng.toFixed(4)}°E`);
+        setIsDetectingLoc(false);
+      },
+      (err) => {
+        console.warn("GPS error:", err);
+        // If GPS permission denied or localhost fallback, default to Jankipuram coordinates if not available
+        setLocationStatus("GPS unavailable (click to retry or pick area below)");
+        setIsDetectingLoc(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
   useEffect(() => {
     fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/home/stats`)
       .then(res => res.json())
       .then(data => setStats(data))
       .catch(console.error);
+
+    detectLiveLocation();
   }, []);
+
+  const handlePresetChange = (presetLabel: string) => {
+    setSelectedPreset(presetLabel);
+    const preset = LUCKNOW_PRESETS.find(p => p.label === presetLabel);
+    if (preset && preset.lat && preset.lng) {
+      setCoords({ lat: preset.lat, lng: preset.lng });
+      setLocationStatus(`Selected: ${presetLabel} (${preset.lat}, ${preset.lng})`);
+    } else {
+      detectLiveLocation();
+    }
+  };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -21,8 +79,16 @@ export default function CommandCenter() {
     setImagePreview(URL.createObjectURL(file));
     setResult(null);
     setLoading(true);
+
     const formData = new FormData();
     formData.append('image', file);
+
+    // Pass real acquired GPS / location coordinates
+    if (coords?.lat && coords?.lng) {
+      formData.append('latitude', coords.lat.toString());
+      formData.append('longitude', coords.lng.toString());
+    }
+
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/predict`, {
         method: 'POST',
@@ -64,6 +130,39 @@ export default function CommandCenter() {
             <span className="text-blue-400">⌨</span> Data Ingestion
           </h2>
 
+          {/* Location status & selector bar */}
+          <div className="mb-4 bg-gray-900/90 border border-blue-900/40 rounded-lg p-3 text-xs space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-400 font-medium flex items-center gap-1">
+                <span className="text-blue-400">📍</span> Device Geolocation
+              </span>
+              <button
+                onClick={detectLiveLocation}
+                disabled={isDetectingLoc}
+                className="text-blue-400 hover:text-blue-300 font-semibold text-[11px] underline"
+              >
+                {isDetectingLoc ? "Detecting..." : "Refresh GPS"}
+              </button>
+            </div>
+            <div className="font-mono text-emerald-400 truncate font-semibold">
+              {locationStatus}
+            </div>
+            <div className="pt-1">
+              <label className="text-gray-400 block mb-1 text-[11px]">Area Location</label>
+              <select
+                value={selectedPreset}
+                onChange={(e) => handlePresetChange(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-200 text-xs focus:outline-none focus:border-blue-500"
+              >
+                {LUCKNOW_PRESETS.map((p) => (
+                  <option key={p.label} value={p.label}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
           {/* Upload Tabs */}
           <div className="flex gap-2 mb-4 bg-gray-800/50 p-1 rounded-lg">
             <button className="flex-1 py-1.5 text-sm font-medium rounded-md bg-blue-600 text-white transition">
@@ -83,6 +182,7 @@ export default function CommandCenter() {
             />
             <div className="text-4xl mb-3 text-gray-600">☁️</div>
             <p className="text-gray-500 text-sm">Drag &amp; Drop or Click to Upload</p>
+            <p className="text-gray-600 text-[11px] mt-1">Geo-tagging will automatically route to zone</p>
           </div>
 
           {imagePreview && (
@@ -111,13 +211,24 @@ export default function CommandCenter() {
                       <div className="text-gray-500 text-xs">Confidence</div>
                       <div className="font-bold text-gray-200">{result.explainability?.confidence || 'N/A'}</div>
                     </div>
-                    <div className="col-span-2">
-                      <div className="text-gray-500 text-xs">Municipal Ward &amp; Zone</div>
-                      <div className="font-bold text-blue-400">{result.routing?.zone_id} ({result.routing?.ward_name})</div>
+                    <div className="col-span-2 bg-blue-950/30 p-2.5 rounded border border-blue-900/50">
+                      <div className="text-gray-400 text-xs font-semibold">📍 Resolved Ward &amp; Zone:</div>
+                      <div className="font-bold text-emerald-400 text-sm mt-0.5">
+                        {result.routing?.zone_id} ({result.routing?.zone_name || result.routing?.ward_name})
+                      </div>
+                      <div className="text-gray-300 text-xs mt-0.5">
+                        {result.routing?.ward_id} • {result.routing?.ward_name}
+                      </div>
+                      {result.location?.address && (
+                        <div className="text-gray-400 text-[11px] mt-1 truncate">
+                          {result.location?.address}
+                        </div>
+                      )}
                     </div>
                     <div className="col-span-2">
                       <div className="text-gray-500 text-xs">Dept / Officer</div>
                       <div className="font-bold text-gray-300">{result.routing?.department}</div>
+                      <div className="text-gray-400 text-xs">Assigned: {result.routing?.officer_name}</div>
                     </div>
                   </div>
                 </div>

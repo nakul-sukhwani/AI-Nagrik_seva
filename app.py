@@ -1143,7 +1143,13 @@ def predict():
         "department": department,
         "routing": routing_result,
         "scoring": scoring,
-        "explainability": explainability
+        "explainability": explainability,
+        "location": {
+            "latitude": latitude,
+            "longitude": longitude,
+            "address": addr,
+            "landmark": landmark
+        }
     })
 @app.route("/predict-video", methods=["POST"])
 def predict_video():
