@@ -290,6 +290,7 @@
                                     <th class="py-3 px-4">Issue Type</th>
                                     <th class="py-3 px-4">Severity</th>
                                     <th class="py-3 px-4">Status</th>
+                                    <th class="py-3 px-4">Zone / Ward</th>
                                     <th class="py-3 px-4">Location</th>
                                     <th class="py-3 px-4">Date</th>
                                     <th class="py-3 px-4">Assigned Officer</th>
@@ -465,6 +466,19 @@
                         <p><span class="text-slate-500">Landmark:</span> <strong id="modal-landmark">--</strong></p>
                         <p><span class="text-slate-500">Coordinates:</span> <code id="modal-coords" class="bg-white px-1.5 py-0.5 rounded border border-slate-300">Lat: --, Lng: --</code></p>
                     </div>
+
+                    <!-- Lucknow Municipal Corporation Jurisdiction -->
+                    <div class="bg-indigo-50/70 p-3 rounded-lg border border-indigo-100 mb-3 text-xs space-y-1.5">
+                        <div class="font-bold text-indigo-950 flex items-center gap-1.5 mb-1 text-[11px] uppercase tracking-wider">
+                            <svg class="w-3.5 h-3.5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                            Lucknow Municipal Jurisdiction (नगर निगम लखनऊ)
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-slate-700">
+                            <div><span class="text-slate-500">Assigned Zone:</span> <strong id="modal-zone" class="text-indigo-900 font-bold">--</strong></div>
+                            <div><span class="text-slate-500">Assigned Ward:</span> <strong id="modal-ward" class="text-indigo-900 font-bold">--</strong></div>
+                        </div>
+                    </div>
+
                     <div id="modal-map" class="w-full h-48 rounded-lg border border-slate-200"></div>
                 </div>
 
@@ -630,6 +644,7 @@
                                 <div class="text-xs font-sans">
                                     <strong class="text-blue-700">${m.report_number}</strong><br/>
                                     <strong>Issue:</strong> ${m.issue_type}<br/>
+                                    <strong>Zone & Ward:</strong> ${m.zone_id || 'Zone-4'} / ${m.ward_id || 'Ward-12'}<br/>
                                     <strong>Severity:</strong> ${m.severity}<br/>
                                     <strong>Status:</strong> ${m.status}<br/>
                                     <button onclick="openReportModal(${m.id})" class="mt-2 w-full py-1 bg-blue-600 text-white rounded text-[11px] font-bold">View Report</button>
@@ -697,6 +712,10 @@
                     <td class="py-3 px-4 font-semibold text-slate-800">${r.issue_type || 'Civic Issue'}</td>
                     <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs font-bold ${r.severity && r.severity.includes('High') ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-800'}">${r.severity || 'Medium'}</span></td>
                     <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs font-semibold ${r.status === 'Resolved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">${r.status || 'Pending'}</span></td>
+                    <td class="py-3 px-4 text-xs">
+                        <span class="inline-flex items-center px-1.5 py-0.5 rounded font-bold bg-blue-50 text-blue-800 border border-blue-200 text-[11px]">${r.zone_id || 'Zone-4'}</span>
+                        <div class="text-[11px] text-slate-600 font-medium mt-0.5">${r.ward_id || 'Ward-12'}</div>
+                    </td>
                     <td class="py-3 px-4 text-xs text-slate-600">${r.address ? r.address : (r.latitude ? `Lat: ${r.latitude.toFixed(3)}, Lng: ${r.longitude.toFixed(3)}` : 'Location unavailable')}</td>
                     <td class="py-3 px-4 text-xs text-slate-500">${r.created_at ? r.created_at.split('T')[0] : ''}</td>
                     <td class="py-3 px-4 text-xs font-medium text-slate-700">${r.assigned_officer_name || 'Rajesh Kumar'}</td>
@@ -740,6 +759,8 @@
                 
                 document.getElementById('modal-address').innerText = r.address || 'Address location unavailable';
                 document.getElementById('modal-landmark').innerText = r.landmark || 'None';
+                document.getElementById('modal-zone').innerText = r.zone_id || 'Zone-4';
+                document.getElementById('modal-ward').innerText = r.ward_id || 'Ward-12';
 
                 if (r.latitude && r.longitude) {
                     document.getElementById('modal-coords').innerText = `Lat: ${r.latitude}, Lng: ${r.longitude}`;
