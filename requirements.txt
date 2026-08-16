@@ -4,3 +4,6 @@ pillow
 flask
 pandas
 opencv-python
+supabase
+psycopg2-binary
+python-dotenv

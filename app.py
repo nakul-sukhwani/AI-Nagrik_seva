@@ -19,6 +19,13 @@ import os
 import sys
 import sqlite3
 import json
+
+# =====================================================
+# SUPABASE CONNECTION INJECTOR
+# =====================================================
+import supabase_client
+# Override sqlite3.connect to automatically route to Supabase when active
+sqlite3.connect = supabase_client.get_db_connection
 import io
 import base64
 import csv
@@ -137,6 +144,10 @@ def init_db():
     Create officers, workers, reports, and report_images tables if they do not exist,
     and migrate missing columns for the Nagrik-Seva AI Admin/Officer Dashboard.
     """
+    if supabase_client.IS_SUPABASE_ACTIVE:
+        print("⚡ Supabase is active. Skipping local SQLite schema initialization.")
+        return
+
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
@@ -972,6 +983,17 @@ def predict():
     image_path = reports_dir / filename
     image.save(image_path)
 
+    # Upload to Supabase Storage if active
+    if supabase_client.IS_SUPABASE_ACTIVE:
+        try:
+            with open(image_path, "rb") as f:
+                db_image_path = supabase_client.upload_image_to_supabase(f.read(), filename, "reports")
+        except Exception as e:
+            print(f"⚠️ Supabase upload failed, using local path: {e}")
+            db_image_path = f"static/reports/{filename}"
+    else:
+        db_image_path = f"static/reports/{filename}"
+
     # Auto-Dispatch Logic and Save report to database
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -1005,7 +1027,7 @@ def predict():
         (image_path, summary, severity, latitude, longitude, created_at, type, department, avg_confidence, latency_ms, class_confidences, report_number, citizen_id, issue_type, description, status, address, landmark, zone_id, ward_id, assigned_officer_id, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        f"static/reports/{filename}",
+        db_image_path,
         json.dumps(summary),
         severity,
         latitude,
@@ -1036,8 +1058,8 @@ def predict():
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         new_report_id,
-        f"static/reports/{filename}",
-        f"/static/reports/{filename}",
+        db_image_path,
+        f"/{db_image_path}" if not db_image_path.startswith("/") else db_image_path,
         filename,
         "image/png",
         os.path.getsize(image_path) if image_path.exists() else 102400,
@@ -1144,6 +1166,19 @@ def predict_video():
     # For now, let's just save one entry representing the video analysis with the first keyframe as the thumb
     report_id = None
     if key_frames:
+        # If Supabase active, upload the thumbnail frame
+        thumb_path = key_frames[0]
+        if supabase_client.IS_SUPABASE_ACTIVE:
+            try:
+                filename = os.path.basename(thumb_path)
+                with open(BASE_DIR / thumb_path, "rb") as f:
+                    db_thumb_path = supabase_client.upload_image_to_supabase(f.read(), filename, "reports")
+            except Exception as e:
+                print(f"⚠️ Supabase upload for video thumb failed: {e}")
+                db_thumb_path = thumb_path
+        else:
+            db_thumb_path = thumb_path
+
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         
@@ -1155,7 +1190,7 @@ def predict_video():
             (image_path, summary, severity, latitude, longitude, created_at, type, avg_confidence, latency_ms, class_confidences)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            key_frames[0], # Use first detected frame as thumbnail
+            db_thumb_path, # Use first detected frame as thumbnail
             json.dumps(summary),
             severity,
             None, None, # No location for video uploads yet
@@ -1775,6 +1810,21 @@ def api_reports_map():
 
     map_points = [dict(row) for row in rows]
     return jsonify({"markers": map_points})
+
+# =====================================================
+# SUPABASE STORAGE REDIRECT ROUTE
+# =====================================================
+
+@app.route("/supabase/<bucket_name>/<filename>")
+def serve_supabase_file(bucket_name, filename):
+    """
+    Redirects requests for Supabase Storage objects to their public CDN URL.
+    Maintains full backward compatibility with templates that prepend '/'.
+    """
+    if supabase_client.IS_SUPABASE_ACTIVE:
+        return redirect(f"{supabase_client.SUPABASE_URL}/storage/v1/object/public/{bucket_name}/{filename}")
+    # Fallback to local files if Supabase is inactive
+    return send_file(BASE_DIR / "static" / bucket_name / filename)
 
 # =====================================================
 # APPLICATION ENTRY POINT
