@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-50">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nagrik-Seva AI — Municipal Officer Dashboard</title>
+    <!-- Fonts & Styling -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        gov: {
+                            50: '#f0f4f8',
+                            100: '#d9e2ec',
+                            500: '#334e68',
+                            600: '#243b53',
+                            700: '#102a43',
+                            800: '#0b1b2b',
+                            900: '#06101e'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Leaflet Map CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        /* Custom map pin glow */
+        .leaflet-container { font-family: 'Inter', sans-serif; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    </style>
+</head>
+<body class="h-full text-slate-800 antialiased font-sans flex overflow-hidden">
+
+    <!-- LEFT SIDEBAR -->
+    <aside class="w-64 bg-gov-900 text-slate-200 flex flex-col justify-between flex-shrink-0 border-r border-gov-700 shadow-xl z-20">
+        <div>
+            <!-- Branding Header -->
+            <div class="px-5 py-5 border-b border-gov-700/60 bg-gov-800/50 flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-xl shadow-md border border-blue-400/30">
+                    🏛️
+                </div>
+                <div>
+                    <h1 class="font-bold text-white text-lg leading-tight tracking-wide">Nagrik-Seva AI</h1>
+                    <p class="text-xs text-slate-400 font-medium tracking-wider uppercase">Municipal Operations</p>
+                </div>
+            </div>
+
+            <!-- Navigation Links -->
+            <nav class="mt-6 px-3 space-y-1">
+                <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-white bg-blue-600/90 shadow-sm">
+                    <svg class="w-5 h-5 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+                    Dashboard
+                </button>
+                <button onclick="switchTab('reports')" id="nav-reports" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-300 hover:text-white hover:bg-gov-700/50">
+                    <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    Reports
+                </button>
+                <button onclick="switchTab('map')" id="nav-map" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-300 hover:text-white hover:bg-gov-700/50">
+                    <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+                    Interactive Map
+                </button>
+                <button onclick="switchTab('profile')" id="nav-profile" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-300 hover:text-white hover:bg-gov-700/50">
+                    <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                    Officer Profile
+                </button>
+                <button onclick="switchTab('settings')" id="nav-settings" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-300 hover:text-white hover:bg-gov-700/50">
+                    <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    Settings
+                </button>
+            </nav>
+        </div>
+
+        <!-- Sidebar Footer & Logout -->
+        <div class="p-4 border-t border-gov-700/60 bg-gov-950/40">
+            <div class="flex items-center gap-3 mb-3 px-1">
+                <div class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                <span class="text-xs text-slate-300 font-medium">Server Connected</span>
+            </div>
+            <button onclick="handleLogout()" class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-rose-300 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 transition-all">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                Logout Officer
+            </button>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT CONTAINER -->
+    <div class="flex-1 flex flex-col min-w-0 bg-slate-100 overflow-hidden">
+        
+        <!-- TOP NAVIGATION BAR -->
+        <header class="bg-white border-b border-slate-200 px-6 py-3.5 flex items-center justify-between shadow-sm z-10">
+            <div class="flex items-center gap-4">
+                <h2 id="page-title" class="text-xl font-bold text-slate-900">Dashboard</h2>
+                <span id="demo-tag" class="hidden text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                    DEMO DATA MODE
+                </span>
+            </div>
+
+            <!-- Officer Profile Summary Top Navigation Dropdown -->
+            <div class="relative">
+                <button onclick="toggleProfileDropdown()" class="flex items-center gap-3 p-1.5 rounded-lg hover:bg-slate-100 transition-all focus:outline-none">
+                    <img id="top-officer-avatar" src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150" alt="Officer Avatar" class="w-9 h-9 rounded-full object-cover border-2 border-gov-500 shadow-sm">
+                    <div class="text-left hidden sm:block">
+                        <div id="top-officer-name" class="text-sm font-semibold text-slate-900 leading-tight">Rajesh Kumar</div>
+                        <div id="top-officer-role" class="text-xs text-slate-500 font-medium">Senior Ward Officer</div>
+                    </div>
+                    <svg class="w-4 h-4 text-slate-400 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+
+                <!-- Dropdown Menu -->
+                <div id="profile-dropdown" class="hidden absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-slate-200 py-1.5 z-50">
+                    <div class="px-4 py-2 border-b border-slate-100">
+                        <p id="menu-officer-email" class="text-xs text-slate-500 truncate">officer.rajesh@nagrikseva.gov.in</p>
+                        <p id="menu-officer-dept" class="text-xs font-semibold text-blue-700">Roads & Sanitation</p>
+                    </div>
+                    <a href="#" onclick="switchTab('profile'); toggleProfileDropdown(); return false;" class="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                        <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                        View Full Officer Profile
+                    </a>
+                    <a href="#" onclick="switchTab('settings'); toggleProfileDropdown(); return false;" class="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                        <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        Settings
+                    </a>
+                    <div class="border-t border-slate-100 my-1"></div>
+                    <a href="#" onclick="handleLogout()" class="flex items-center gap-2 px-4 py-2 text-sm text-rose-600 hover:bg-rose-50 font-medium">
+                        <svg class="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                        Logout
+                    </a>
+                </div>
+            </div>
+        </header>
+
+        <!-- DASHBOARD BODY CONTAINER (SCROLLABLE AREA) -->
+        <main class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+
+            <!-- DATA STATES: GLOBAL ERROR & LOADING BANNERS -->
+            <div id="loading-state" class="hidden flex items-center justify-center p-8 bg-white rounded-xl shadow-sm border border-slate-200">
+                <div class="flex items-center gap-3 text-gov-600 font-medium">
+                    <svg class="animate-spin h-6 w-6 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Loading reports data from server database...
+                </div>
+            </div>
+
+            <div id="error-state" class="hidden p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <svg class="w-5 h-5 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span id="error-message">Unable to load reports. Please try again.</span>
+                </div>
+                <button onclick="loadDashboardData()" class="px-3 py-1 bg-rose-600 text-white rounded-md text-xs font-semibold hover:bg-rose-700">Retry</button>
+            </div>
+
+            <!-- SECTION 1: DASHBOARD VIEW (CARDS + MAP + RECENT REPORTS) -->
+            <div id="tab-content-dashboard" class="space-y-6">
+                
+                <!-- SUMMARY CARDS ARCHITECTURE (PDF Section 13 & 14) -->
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-5">
+                    <!-- Prominent Total Reports Card (PDF Section 13) -->
+                    <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm relative overflow-hidden">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">TOTAL REPORTS</p>
+                                <h3 id="card-total-reports" class="text-3xl font-extrabold text-slate-900 mt-2">--</h3>
+                            </div>
+                            <div class="p-3 bg-blue-50 text-blue-600 rounded-lg">
+                                📊
+                            </div>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-3 flex items-center gap-1">
+                            <span class="font-medium text-emerald-600">COUNT(reports)</span> database query
+                        </p>
+                    </div>
+
+                    <!-- Card 2: Pending Reports -->
+                    <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="text-xs font-semibold text-amber-600 uppercase tracking-wider">PENDING</p>
+                                <h3 id="card-pending-reports" class="text-3xl font-extrabold text-slate-900 mt-2">--</h3>
+                            </div>
+                            <div class="p-3 bg-amber-50 text-amber-600 rounded-lg">
+                                ⏳
+                            </div>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-3">Awaiting officer assignment</p>
+                    </div>
+
+                    <!-- Card 3: In Progress Reports -->
+                    <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="text-xs font-semibold text-indigo-600 uppercase tracking-wider">IN PROGRESS</p>
+                                <h3 id="card-inprogress-reports" class="text-3xl font-extrabold text-slate-900 mt-2">--</h3>
+                            </div>
+                            <div class="p-3 bg-indigo-50 text-indigo-600 rounded-lg">
+                                🛠️
+                            </div>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-3">Under active resolution</p>
+                    </div>
+
+                    <!-- Card 4: Resolved Reports -->
+                    <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="text-xs font-semibold text-emerald-600 uppercase tracking-wider">RESOLVED</p>
+                                <h3 id="card-resolved-reports" class="text-3xl font-extrabold text-slate-900 mt-2">--</h3>
+                            </div>
+                            <div class="p-3 bg-emerald-50 text-emerald-600 rounded-lg">
+                                ✅
+                            </div>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-3">Action completed</p>
+                    </div>
+                </div>
+
+                <!-- MAP & QUICK OVERVIEW GRID (PDF Section 11 & 12) -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                    <!-- LEAFLET MAP PANEL (PDF Section 11) -->
+                    <div class="lg:col-span-2 bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="font-bold text-slate-900 text-base">Civic Reports Map</h3>
+                                <p class="text-xs text-slate-500">Geographic distribution of reported civic issues</p>
+                            </div>
+                            <button onclick="switchTab('map')" class="text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                                Expand Map &rarr;
+                            </button>
+                        </div>
+                        <!-- Map Container -->
+                        <div id="dash-map" class="w-full h-80 rounded-lg border border-slate-200 z-0"></div>
+                    </div>
+
+                    <!-- RECENT ACTIVITY PANEL -->
+                    <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col">
+                        <h3 class="font-bold text-slate-900 text-base mb-3">Recent Reports</h3>
+                        <div id="recent-reports-list" class="flex-1 space-y-3 overflow-y-auto max-h-80 custom-scrollbar pr-1">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- SECTION 2: FULL REPORTS TABLE VIEW (PDF Section 15) -->
+            <div id="tab-content-reports" class="hidden space-y-5">
+                <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                    <!-- Filters & Search Toolbar -->
+                    <div class="flex flex-col md:flex-row items-center justify-between gap-4 mb-5">
+                        <div class="relative w-full md:w-80">
+                            <input type="text" id="report-search-input" onkeyup="handleReportSearch()" placeholder="Search Report ID, issue, address..." class="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                            <svg class="w-4 h-4 text-slate-400 absolute left-3 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        </div>
+                        <div class="flex items-center gap-3 w-full md:w-auto justify-end">
+                            <select id="filter-status" onchange="loadReportsTable()" class="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                                <option value="">All Statuses</option>
+                                <option value="Pending">Pending</option>
+                                <option value="In Progress">In Progress</option>
+                                <option value="Resolved">Resolved</option>
+                            </select>
+                            <select id="filter-severity" onchange="loadReportsTable()" class="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                                <option value="">All Severities</option>
+                                <option value="Low">Low</option>
+                                <option value="Medium">Medium</option>
+                                <option value="High">High</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Reports Table -->
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                                    <th class="py-3 px-4">Report ID</th>
+                                    <th class="py-3 px-4">Issue Type</th>
+                                    <th class="py-3 px-4">Severity</th>
+                                    <th class="py-3 px-4">Status</th>
+                                    <th class="py-3 px-4">Location</th>
+                                    <th class="py-3 px-4">Date</th>
+                                    <th class="py-3 px-4">Assigned Officer</th>
+                                    <th class="py-3 px-4 text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="reports-table-body" class="divide-y divide-slate-200 text-sm">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Empty State (PDF Section 18) -->
+                    <div id="reports-empty-state" class="hidden text-center py-12">
+                        <p class="text-base font-semibold text-slate-700">No reports found.</p>
+                        <p class="text-xs text-slate-500 mt-1">There are no complaints matching your criteria in the database.</p>
+                    </div>
+
+                    <!-- Pagination Controls -->
+                    <div id="reports-pagination" class="flex items-center justify-between mt-5 pt-4 border-t border-slate-200 text-xs text-slate-500">
+                        <span id="pagination-info">Showing reports</span>
+                        <div class="flex items-center gap-2">
+                            <button id="btn-prev-page" onclick="changePage(-1)" class="px-3 py-1.5 border border-slate-300 rounded-md font-medium hover:bg-slate-50 disabled:opacity-50">Previous</button>
+                            <button id="btn-next-page" onclick="changePage(1)" class="px-3 py-1.5 border border-slate-300 rounded-md font-medium hover:bg-slate-50 disabled:opacity-50">Next</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION 3: FULL MAP VIEW (PDF Section 11 & 23) -->
+            <div id="tab-content-map" class="hidden space-y-5">
+                <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col h-[650px]">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h3 class="font-bold text-slate-900 text-lg">Interactive Municipal Map</h3>
+                            <p class="text-xs text-slate-500">Select any marker to inspect geolocation details and view full complaint report</p>
+                        </div>
+                    </div>
+                    <div id="full-leaflet-map" class="w-full flex-1 rounded-lg border border-slate-200 z-0"></div>
+                </div>
+            </div>
+
+            <!-- SECTION 4: OFFICER PROFILE VIEW (PDF Section 6) -->
+            <div id="tab-content-profile" class="hidden space-y-6">
+                <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 max-w-4xl mx-auto">
+                    <div class="flex flex-col md:flex-row items-center gap-6 pb-6 border-b border-slate-200">
+                        <img id="profile-img-large" src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150" alt="Officer Profile" class="w-24 h-24 rounded-full object-cover border-4 border-gov-500 shadow-md">
+                        <div class="text-center md:text-left">
+                            <h3 id="profile-full-name" class="text-2xl font-bold text-slate-900">Rajesh Kumar</h3>
+                            <p id="profile-designation" class="text-sm font-semibold text-blue-700 mt-0.5">Senior Ward Officer</p>
+                            <div class="mt-3 flex flex-wrap justify-center md:justify-start gap-2">
+                                <span id="profile-badge-role" class="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-md text-xs font-medium border border-slate-200">Role: Ward Officer</span>
+                                <span id="profile-badge-status" class="px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-md text-xs font-semibold border border-emerald-300">Active</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                        <!-- Identity & Jurisdiction -->
+                        <div class="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                            <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider">Identity & Jurisdiction</h4>
+                            <div class="text-sm space-y-2">
+                                <div class="flex justify-between"><span class="text-slate-500">Officer ID:</span><span id="profile-officer-id" class="font-semibold text-slate-900">OFF-2026-001</span></div>
+                                <div class="flex justify-between"><span class="text-slate-500">Department:</span><span id="profile-department" class="font-semibold text-slate-900">Roads & Sanitation</span></div>
+                                <div class="flex justify-between"><span class="text-slate-500">Assigned Zone:</span><span id="profile-zone" class="font-semibold text-slate-900">Zone-4 (North)</span></div>
+                                <div class="flex justify-between"><span class="text-slate-500">Assigned Ward:</span><span id="profile-ward" class="font-semibold text-slate-900">Ward-12</span></div>
+                            </div>
+                        </div>
+
+                        <!-- Official Contact Information -->
+                        <div class="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                            <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider">Official Contact</h4>
+                            <div class="text-sm space-y-2">
+                                <div class="flex justify-between"><span class="text-slate-500">Official Email:</span><span id="profile-email" class="font-semibold text-slate-900">officer.rajesh@nagrikseva.gov.in</span></div>
+                                <div class="flex justify-between"><span class="text-slate-500">Official Phone:</span><span id="profile-phone" class="font-semibold text-slate-900">+91 98765 43210</span></div>
+                            </div>
+                        </div>
+
+                        <!-- Account Information -->
+                        <div class="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                            <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider">Account Security</h4>
+                            <div class="text-sm space-y-2">
+                                <div class="flex justify-between"><span class="text-slate-500">Account Created:</span><span id="profile-created" class="font-semibold text-slate-900">2026-01-15</span></div>
+                                <div class="flex justify-between"><span class="text-slate-500">Last Login:</span><span id="profile-lastlogin" class="font-semibold text-slate-900">Just now</span></div>
+                                <div class="flex justify-between"><span class="text-slate-500">Account Status:</span><span class="font-semibold text-emerald-600">Verified Officer</span></div>
+                            </div>
+                        </div>
+
+                        <!-- Permissions & Role -->
+                        <div class="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                            <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider">Assigned Permissions</h4>
+                            <div class="p-3 bg-white border border-slate-200 rounded text-xs font-mono text-slate-700">
+                                Role: Ward Officer<br>
+                                Scope: Ward-12 / Zone-4 (North)<br>
+                                Actions: Read, Inspect, Update Report Status
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION 5: SETTINGS PLACEHOLDER -->
+            <div id="tab-content-settings" class="hidden space-y-6">
+                <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 max-w-2xl mx-auto text-center py-12">
+                    <h3 class="text-lg font-bold text-slate-900">System Preferences & Settings</h3>
+                    <p class="text-xs text-slate-500 mt-2">Municipal portal settings and zone preferences.</p>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- REPORT DETAIL MODAL (PDF Section 16 & 17) -->
+    <div id="report-detail-modal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-3xl w-full shadow-2xl overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]">
+            
+            <!-- Modal Header -->
+            <div class="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                <div>
+                    <span id="modal-report-number" class="text-xs font-bold px-2.5 py-1 rounded bg-blue-100 text-blue-800 border border-blue-200">REP-2026-0001</span>
+                    <h3 id="modal-issue-type" class="text-lg font-bold text-slate-900 mt-1">Civic Report Details</h3>
+                </div>
+                <button onclick="closeReportModal()" class="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <!-- Modal Content (Scrollable) -->
+            <div class="p-6 overflow-y-auto space-y-6 custom-scrollbar flex-1">
+                
+                <!-- Basic Info Cards -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                        <p class="text-xs text-slate-500 font-medium">Status</p>
+                        <span id="modal-status-badge" class="mt-1 inline-block px-2.5 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-800">Pending</span>
+                    </div>
+                    <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                        <p class="text-xs text-slate-500 font-medium">Severity</p>
+                        <span id="modal-severity-badge" class="mt-1 inline-block text-xs font-bold text-slate-800">Medium</span>
+                    </div>
+                    <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                        <p class="text-xs text-slate-500 font-medium">Created Date</p>
+                        <p id="modal-created-at" class="text-xs font-semibold text-slate-800 mt-1">--</p>
+                    </div>
+                    <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                        <p class="text-xs text-slate-500 font-medium">Citizen ID</p>
+                        <p id="modal-citizen-id" class="text-xs font-semibold text-slate-800 mt-1">CIT-1001</p>
+                    </div>
+                </div>
+
+                <!-- Prominent Main Image View -->
+                <div>
+                    <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Uploaded Incident Image</h4>
+                    <div class="border border-slate-200 rounded-xl overflow-hidden bg-slate-50 relative group cursor-pointer max-h-80 flex items-center justify-center">
+                        <img id="modal-main-image" src="" alt="Incident Image" class="max-h-80 w-auto object-contain hover:scale-[1.02] transition-transform duration-300" onclick="triggerLightboxFromMain()">
+                        <div class="absolute bottom-3 right-3 bg-black/60 backdrop-blur-sm text-white text-[10px] px-2 py-1 rounded-md font-medium pointer-events-none">
+                            Click to View Fullscreen
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Description -->
+                <div>
+                    <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Description</h4>
+                    <p id="modal-description" class="text-sm text-slate-700 bg-slate-50 p-3 rounded-lg border border-slate-200">No description provided.</p>
+                </div>
+
+                <!-- Location & Map -->
+                <div>
+                    <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Location & Geolocation</h4>
+                    <div class="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-3 text-xs space-y-1">
+                        <p><span class="text-slate-500">Address:</span> <strong id="modal-address">--</strong></p>
+                        <p><span class="text-slate-500">Landmark:</span> <strong id="modal-landmark">--</strong></p>
+                        <p><span class="text-slate-500">Coordinates:</span> <code id="modal-coords" class="bg-white px-1.5 py-0.5 rounded border border-slate-300">Lat: --, Lng: --</code></p>
+                    </div>
+                    <div id="modal-map" class="w-full h-48 rounded-lg border border-slate-200"></div>
+                </div>
+
+                <!-- Images Gallery (PDF Section 17) -->
+                <div>
+                    <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Complaint Images</h4>
+                    <div id="modal-image-gallery" class="grid grid-cols-3 gap-3">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Assigned Officer Info -->
+                <div class="bg-blue-50/60 p-4 rounded-lg border border-blue-100">
+                    <h4 class="text-xs font-bold text-blue-800 uppercase tracking-wider mb-1">Assigned Officer</h4>
+                    <p id="modal-officer-info" class="text-xs text-blue-900 font-semibold">Rajesh Kumar (Senior Ward Officer)</p>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- IMAGE FULL PREVIEW LIGHTBOX MODAL (PDF Section 17) -->
+    <div id="image-lightbox-modal" class="hidden fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+        <div class="relative max-w-4xl max-h-[90vh] bg-slate-900 rounded-xl overflow-hidden shadow-2xl p-2 flex flex-col items-center">
+            <button onclick="closeImageLightbox()" class="absolute top-4 right-4 bg-slate-800 text-white rounded-full p-2 hover:bg-slate-700 z-10">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+            <img id="lightbox-image" src="" alt="Full Preview" class="max-h-[80vh] w-auto object-contain rounded-lg">
+            <p id="lightbox-caption" class="text-xs text-slate-300 mt-2"></p>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script>
+        let dashMap = null;
+        let fullMap = null;
+        let modalMap = null;
+        let currentPage = 1;
+        let activeTabName = "{{ active_tab or 'dashboard' }}";
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initDashboard();
+        });
+
+        async function initDashboard() {
+            await fetchOfficerProfile();
+            await loadDashboardData();
+            switchTab(activeTabName);
+        }
+
+        // 1. Fetch Officer Profile from API
+        async function fetchOfficerProfile() {
+            try {
+                const res = await fetch('/api/officer/profile');
+                if (!res.ok) throw new Error('Officer endpoint returned error');
+                const data = await res.json();
+                
+                document.getElementById('top-officer-name').innerText = data.name;
+                document.getElementById('top-officer-role').innerText = data.designation;
+                document.getElementById('top-officer-avatar').src = data.profile_image_url || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150';
+                document.getElementById('menu-officer-email').innerText = data.email;
+                document.getElementById('menu-officer-dept').innerText = data.department;
+
+                // Profile tab elements
+                document.getElementById('profile-full-name').innerText = data.name;
+                document.getElementById('profile-designation').innerText = data.designation;
+                document.getElementById('profile-officer-id').innerText = data.officer_id;
+                document.getElementById('profile-department').innerText = data.department;
+                document.getElementById('profile-zone').innerText = data.zone_id;
+                document.getElementById('profile-ward').innerText = data.ward_id;
+                document.getElementById('profile-email').innerText = data.email;
+                document.getElementById('profile-phone').innerText = data.phone;
+                document.getElementById('profile-img-large').src = data.profile_image_url || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150';
+                document.getElementById('profile-badge-role').innerText = 'Role: ' + data.role;
+                document.getElementById('profile-created').innerText = data.created_at ? data.created_at.split('T')[0] : '2026-01-15';
+            } catch (err) {
+                console.warn("Using fallback officer profile", err);
+            }
+        }
+
+        // 2. Load Dashboard Data (Summary Cards + Recent Reports + Map)
+        async function loadDashboardData() {
+            showLoading(true);
+            hideError();
+            try {
+                // Fetch summary metrics
+                const sumRes = await fetch('/api/dashboard/summary');
+                const summary = await sumRes.json();
+
+                document.getElementById('card-total-reports').innerText = summary.total_reports.toLocaleString();
+                document.getElementById('card-pending-reports').innerText = summary.pending.toLocaleString();
+                document.getElementById('card-inprogress-reports').innerText = summary.in_progress.toLocaleString();
+                document.getElementById('card-resolved-reports').innerText = summary.resolved.toLocaleString();
+
+                if (summary.is_demo) {
+                    document.getElementById('demo-tag').classList.remove('hidden');
+                }
+
+                // Load recent reports for side widget
+                const reportsRes = await fetch('/api/reports?limit=5');
+                const reportsData = await reportsRes.json();
+                renderRecentReports(reportsData.reports);
+
+                // Load map markers
+                await loadMapMarkers();
+
+                showLoading(false);
+            } catch (err) {
+                showLoading(false);
+                showError('Failed to connect to municipal database: ' + err.message);
+            }
+        }
+
+        function renderRecentReports(reports) {
+            const container = document.getElementById('recent-reports-list');
+            container.innerHTML = '';
+            if (!reports || reports.length === 0) {
+                container.innerHTML = '<p class="text-xs text-slate-500 py-4 text-center">No recent reports found.</p>';
+                return;
+            }
+            reports.forEach(r => {
+                const card = document.createElement('div');
+                card.className = "p-3 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-all cursor-pointer flex items-center justify-between";
+                card.onclick = () => openReportModal(r.id);
+                card.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">
+                            ${r.id}
+                        </div>
+                        <div>
+                            <div class="font-bold text-xs text-slate-900">${r.report_number || ('REP-' + r.id)} - ${r.issue_type}</div>
+                            <div class="text-[10px] text-slate-500">${r.created_at ? r.created_at.split('T')[0] : ''}</div>
+                        </div>
+                    </div>
+                    <span class="px-2 py-0.5 text-[10px] font-semibold rounded ${r.status === 'Resolved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">${r.status || 'Pending'}</span>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // 3. Leaflet Map Initialization (PDF Section 11)
+        async function loadMapMarkers() {
+            try {
+                const res = await fetch('/api/reports/map');
+                const data = await res.json();
+                const markers = data.markers || [];
+
+                // Init Dashboard overview map
+                if (!dashMap && document.getElementById('dash-map')) {
+                    dashMap = L.map('dash-map').setView([28.6139, 77.2090], 12);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        attribution: '&copy; OpenStreetMap'
+                    }).addTo(dashMap);
+                }
+
+                // Clear existing markers & add new
+                if (dashMap) {
+                    const latLngs = [];
+                    markers.forEach(m => {
+                        if (m.latitude && m.longitude) {
+                            const marker = L.marker([m.latitude, m.longitude]).addTo(dashMap);
+                            marker.bindPopup(`
+                                <div class="text-xs font-sans">
+                                    <strong class="text-blue-700">${m.report_number}</strong><br/>
+                                    <strong>Issue:</strong> ${m.issue_type}<br/>
+                                    <strong>Severity:</strong> ${m.severity}<br/>
+                                    <strong>Status:</strong> ${m.status}<br/>
+                                    <button onclick="openReportModal(${m.id})" class="mt-2 w-full py-1 bg-blue-600 text-white rounded text-[11px] font-bold">View Report</button>
+                                </div>
+                            `);
+                            latLngs.push([m.latitude, m.longitude]);
+                        }
+                    });
+
+                    if (latLngs.length > 0) {
+                        dashMap.fitBounds(latLngs, { padding: [30, 30] });
+                    }
+                }
+            } catch (err) {
+                console.warn("Map marker loading failed", err);
+            }
+        }
+
+        // 4. Reports Table View (PDF Section 15)
+        async function loadReportsTable() {
+            showLoading(true);
+            hideError();
+            const search = document.getElementById('report-search-input').value;
+            const status = document.getElementById('filter-status').value;
+            const severity = document.getElementById('filter-severity').value;
+
+            try {
+                const res = await fetch(`/api/reports?page=${currentPage}&limit=10&q=${encodeURIComponent(search)}&status=${encodeURIComponent(status)}&severity=${encodeURIComponent(severity)}`);
+                const data = await res.json();
+                renderReportsTable(data.reports);
+
+                document.getElementById('pagination-info').innerText = `Page ${data.page} of ${data.pages} (${data.total} total reports)`;
+                document.getElementById('btn-prev-page').disabled = data.page <= 1;
+                document.getElementById('btn-next-page').disabled = data.page >= data.pages;
+
+                showLoading(false);
+            } catch (err) {
+                showLoading(false);
+                showError("Failed to fetch reports list.");
+            }
+        }
+
+        function renderReportsTable(reports) {
+            const tbody = document.getElementById('reports-table-body');
+            const emptyState = document.getElementById('reports-empty-state');
+            tbody.innerHTML = '';
+
+            if (!reports || reports.length === 0) {
+                emptyState.classList.remove('hidden');
+                return;
+            }
+            emptyState.classList.add('hidden');
+
+            reports.forEach(r => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50 transition-colors";
+                const imgPath = r.image_path.startsWith('/') ? r.image_path : '/' + r.image_path;
+                tr.innerHTML = `
+                    <td class="py-3 px-4 font-bold text-blue-700">
+                        <div class="flex items-center gap-2">
+                            <img src="${imgPath}" class="w-8 h-8 rounded object-cover border border-slate-200 cursor-zoom-in hover:scale-110 transition-all shadow-sm" onclick="openImageLightbox('${imgPath}', '${r.report_number || ('REP-' + r.id)}'); event.stopPropagation();">
+                            <span>${r.report_number || ('REP-' + r.id)}</span>
+                        </div>
+                    </td>
+                    <td class="py-3 px-4 font-semibold text-slate-800">${r.issue_type || 'Civic Issue'}</td>
+                    <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs font-bold ${r.severity && r.severity.includes('High') ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-800'}">${r.severity || 'Medium'}</span></td>
+                    <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs font-semibold ${r.status === 'Resolved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">${r.status || 'Pending'}</span></td>
+                    <td class="py-3 px-4 text-xs text-slate-600">${r.address ? r.address : (r.latitude ? `Lat: ${r.latitude.toFixed(3)}, Lng: ${r.longitude.toFixed(3)}` : 'Location unavailable')}</td>
+                    <td class="py-3 px-4 text-xs text-slate-500">${r.created_at ? r.created_at.split('T')[0] : ''}</td>
+                    <td class="py-3 px-4 text-xs font-medium text-slate-700">${r.assigned_officer_name || 'Rajesh Kumar'}</td>
+                    <td class="py-3 px-4 text-right">
+                        <button onclick="openReportModal(${r.id})" class="px-2.5 py-1 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-700 transition-all">Inspect</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        let searchTimeout = null;
+        function handleReportSearch() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                currentPage = 1;
+                loadReportsTable();
+            }, 300);
+        }
+
+        function changePage(delta) {
+            currentPage += delta;
+            if (currentPage < 1) currentPage = 1;
+            loadReportsTable();
+        }
+
+        // 5. Report Detail Modal (PDF Section 16 & 17)
+        async function openReportModal(reportId) {
+            try {
+                const res = await fetch(`/api/reports/${reportId}`);
+                if (!res.ok) throw new Error("Report not found");
+                const r = await res.json();
+
+                document.getElementById('modal-report-number').innerText = r.report_number || ('REP-' + r.id);
+                document.getElementById('modal-issue-type').innerText = r.issue_type || 'Civic Issue';
+                document.getElementById('modal-status-badge').innerText = r.status || 'Pending';
+                document.getElementById('modal-severity-badge').innerText = r.severity || 'Medium';
+                document.getElementById('modal-created-at').innerText = r.created_at ? r.created_at.replace('T', ' ').split('.')[0] : '--';
+                document.getElementById('modal-citizen-id').innerText = r.citizen_id || 'CIT-1001';
+                document.getElementById('modal-description').innerText = r.description || 'Automated detection of civic anomaly.';
+                
+                document.getElementById('modal-address').innerText = r.address || 'Address location unavailable';
+                document.getElementById('modal-landmark').innerText = r.landmark || 'None';
+
+                if (r.latitude && r.longitude) {
+                    document.getElementById('modal-coords').innerText = `Lat: ${r.latitude}, Lng: ${r.longitude}`;
+                } else {
+                    document.getElementById('modal-coords').innerText = 'Location unavailable';
+                }
+
+                // Populate prominent main image view
+                const mainImg = document.getElementById('modal-main-image');
+                if (r.images && r.images.length > 0) {
+                    mainImg.src = r.images[0].public_or_signed_url;
+                    mainImg.parentElement.classList.remove('hidden');
+                } else if (r.image_path) {
+                    mainImg.src = r.image_path.startsWith('/') ? r.image_path : '/' + r.image_path;
+                    mainImg.parentElement.classList.remove('hidden');
+                } else {
+                    mainImg.parentElement.classList.add('hidden');
+                }
+
+                // Render Image Thumbnails Grid
+                const gallery = document.getElementById('modal-image-gallery');
+                gallery.innerHTML = '';
+                if (r.images && r.images.length > 0) {
+                    r.images.forEach(img => {
+                        const imgEl = document.createElement('img');
+                        imgEl.src = img.public_or_signed_url;
+                        imgEl.alt = img.file_name || 'Report Image';
+                        imgEl.className = "w-full h-24 object-cover rounded-lg border border-slate-200 cursor-pointer hover:opacity-90 transition-all";
+                        imgEl.onclick = () => openImageLightbox(img.public_or_signed_url, img.file_name);
+                        gallery.appendChild(imgEl);
+                    });
+                } else {
+                    gallery.innerHTML = '<p class="text-xs text-slate-400">No images attached.</p>';
+                }
+
+                // Show modal
+                document.getElementById('report-detail-modal').classList.remove('hidden');
+
+                // Init Modal Map if lat/lng exists
+                setTimeout(() => {
+                    if (r.latitude && r.longitude) {
+                        if (!modalMap) {
+                            modalMap = L.map('modal-map').setView([r.latitude, r.longitude], 14);
+                            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(modalMap);
+                        } else {
+                            modalMap.setView([r.latitude, r.longitude], 14);
+                        }
+                        L.marker([r.latitude, r.longitude]).addTo(modalMap);
+                    }
+                }, 100);
+
+            } catch (err) {
+                alert("Could not load report details: " + err.message);
+            }
+        }
+
+        function triggerLightboxFromMain() {
+            const mainImg = document.getElementById('modal-main-image');
+            const reportNum = document.getElementById('modal-report-number').innerText;
+            if (mainImg && mainImg.src) {
+                openImageLightbox(mainImg.src, reportNum);
+            }
+        }
+
+        function closeReportModal() {
+            document.getElementById('report-detail-modal').classList.add('hidden');
+        }
+
+        function openImageLightbox(url, name) {
+            document.getElementById('lightbox-image').src = url;
+            document.getElementById('lightbox-caption').innerText = name || 'Complaint Image';
+            document.getElementById('image-lightbox-modal').classList.remove('hidden');
+        }
+
+        function closeImageLightbox() {
+            document.getElementById('image-lightbox-modal').classList.add('hidden');
+        }
+
+        // Tab Switcher Logic
+        function switchTab(tabName) {
+            activeTabName = tabName;
+            const tabs = ['dashboard', 'reports', 'map', 'profile', 'settings'];
+            tabs.forEach(t => {
+                const btn = document.getElementById(`nav-${t}`);
+                const content = document.getElementById(`tab-content-${t}`);
+                if (btn && content) {
+                    if (t === tabName) {
+                        btn.className = "nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-white bg-blue-600/90 shadow-sm";
+                        content.classList.remove('hidden');
+                    } else {
+                        btn.className = "nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-300 hover:text-white hover:bg-gov-700/50";
+                        content.classList.add('hidden');
+                    }
+                }
+            });
+
+            // Update page title in top bar
+            const titleMap = {
+                'dashboard': 'Dashboard',
+                'reports': 'Civic Reports List',
+                'map': 'Interactive Map',
+                'profile': 'Officer Profile',
+                'settings': 'Settings'
+            };
+            document.getElementById('page-title').innerText = titleMap[tabName] || 'Dashboard';
+
+            // Lazy load tab specific data
+            if (tabName === 'reports') {
+                loadReportsTable();
+            } else if (tabName === 'map') {
+                setTimeout(() => initFullMap(), 100);
+            }
+        }
+
+        async function initFullMap() {
+            if (!fullMap && document.getElementById('full-leaflet-map')) {
+                fullMap = L.map('full-leaflet-map').setView([28.6139, 77.2090], 12);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(fullMap);
+            }
+            if (fullMap) {
+                const res = await fetch('/api/reports/map');
+                const data = await res.json();
+                const latLngs = [];
+                (data.markers || []).forEach(m => {
+                    if (m.latitude && m.longitude) {
+                        const marker = L.marker([m.latitude, m.longitude]).addTo(fullMap);
+                        marker.bindPopup(`
+                            <div class="text-xs font-sans">
+                                <strong class="text-blue-700">${m.report_number}</strong><br/>
+                                <strong>Issue:</strong> ${m.issue_type}<br/>
+                                <strong>Severity:</strong> ${m.severity}<br/>
+                                <strong>Status:</strong> ${m.status}<br/>
+                                <button onclick="openReportModal(${m.id})" class="mt-2 w-full py-1 bg-blue-600 text-white rounded text-[11px] font-bold">View Report</button>
+                            </div>
+                        `);
+                        latLngs.push([m.latitude, m.longitude]);
+                    }
+                });
+                if (latLngs.length > 0) fullMap.fitBounds(latLngs, { padding: [30, 30] });
+            }
+        }
+
+        function toggleProfileDropdown() {
+            document.getElementById('profile-dropdown').classList.toggle('hidden');
+        }
+
+        function showLoading(show) {
+            const el = document.getElementById('loading-state');
+            if (show) el.classList.remove('hidden'); else el.classList.add('hidden');
+        }
+
+        function showError(msg) {
+            document.getElementById('error-message').innerText = msg;
+            document.getElementById('error-state').classList.remove('hidden');
+        }
+
+        function hideError() {
+            document.getElementById('error-state').classList.add('hidden');
+        }
+
+        function handleLogout() {
+            if (confirm("Are you sure you want to log out from Nagrik-Seva Officer Portal?")) {
+                window.location.href = "/";
+            }
+        }
+    </script>
+</body>
+</html>

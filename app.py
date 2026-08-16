@@ -91,16 +91,88 @@ model = YOLO(str(MODEL_PATH))
 print("✅ Model loaded")
 
 # =====================================================
+# REVERSE GEOCODING UTILITY
+# =====================================================
+
+def reverse_geocode(lat, lng):
+    """
+    Perform a reverse geocoding lookup using OpenStreetMap's Nominatim API.
+    Gracefully falls back to coordinates if offline or rate-limited.
+    """
+    if lat is None or lng is None:
+        return "Location unavailable", None
+    import urllib.request
+    import json
+    try:
+        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lng}&zoom=18&addressdetails=1"
+        req = urllib.request.Request(
+            url, 
+            headers={'User-Agent': 'NagrikSevaAI/1.0 (municipal dashboard)'}
+        )
+        with urllib.request.urlopen(req, timeout=3) as response:
+            data = json.loads(response.read().decode())
+            addr = data.get("display_name", f"Lat: {lat:.6f}, Lng: {lng:.6f}")
+            address_parts = data.get("address", {})
+            landmark = address_parts.get("suburb", address_parts.get("neighbourhood", address_parts.get("road", "Civic Area")))
+            return addr, landmark
+    except Exception as e:
+        print(f"Error reverse geocoding: {e}")
+        return f"Coordinates: {lat:.6f}, {lng:.6f}", "Civic Area"
+
+# =====================================================
 # DATABASE INITIALIZATION
 # =====================================================
 
 def init_db():
     """
-    Create reports table if it does not exist.
+    Create officers, reports, and report_images tables if they do not exist,
+    and migrate missing columns for the Nagrik-Seva AI Admin/Officer Dashboard.
     """
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
+    # 1. Officers Table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS officers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            phone TEXT,
+            profile_image_url TEXT,
+            officer_id TEXT UNIQUE NOT NULL,
+            designation TEXT,
+            department TEXT,
+            zone_id TEXT,
+            ward_id TEXT,
+            role TEXT DEFAULT 'Ward Officer',
+            status TEXT DEFAULT 'Active',
+            created_at TEXT,
+            updated_at TEXT,
+            last_login_at TEXT
+        )
+    """)
+
+    # Seed demo officer if empty
+    cur.execute("SELECT COUNT(*) FROM officers")
+    if cur.fetchone()[0] == 0:
+        cur.execute("""
+            INSERT INTO officers (name, email, phone, profile_image_url, officer_id, designation, department, zone_id, ward_id, role, status, created_at, updated_at, last_login_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
+        """, (
+            'Rajesh Kumar (DEMO)',
+            'officer.rajesh@nagrikseva.gov.in',
+            '+91 98765 43210',
+            'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
+            'OFF-2026-001',
+            'Senior Ward Officer',
+            'Roads & Sanitation',
+            'Zone-4 (North)',
+            'Ward-12',
+            'Ward Officer',
+            'Active'
+        ))
+
+    # 2. Reports Table
     cur.execute("""
         CREATE TABLE IF NOT EXISTS reports (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,32 +187,103 @@ def init_db():
         )
     """)
     
-    # Check if 'type' column exists (migration for existing DB)
+    # Check existing columns in reports table
     cur.execute("PRAGMA table_info(reports)")
     columns = [info[1] for info in cur.fetchall()]
-    if 'type' not in columns:
-        print("⚠️ Migrating database: Adding 'type' column...")
-        cur.execute("ALTER TABLE reports ADD COLUMN type TEXT DEFAULT 'image'")
 
-    if 'feedback' not in columns:
-        print("⚠️ Migrating database: Adding 'feedback' column...")
-        cur.execute("ALTER TABLE reports ADD COLUMN feedback TEXT DEFAULT NULL")
+    new_cols = [
+        ('type', "TEXT DEFAULT 'image'"),
+        ('feedback', "TEXT DEFAULT NULL"),
+        ('department', "TEXT DEFAULT 'General'"),
+        ('avg_confidence', "REAL DEFAULT NULL"),
+        ('latency_ms', "REAL DEFAULT NULL"),
+        ('class_confidences', "TEXT DEFAULT NULL"),
+        ('report_number', "TEXT DEFAULT NULL"),
+        ('citizen_id', "TEXT DEFAULT 'CIT-1001'"),
+        ('issue_type', "TEXT DEFAULT 'Civic Issue'"),
+        ('description', "TEXT DEFAULT NULL"),
+        ('status', "TEXT DEFAULT 'Pending'"),
+        ('address', "TEXT DEFAULT NULL"),
+        ('landmark', "TEXT DEFAULT NULL"),
+        ('zone_id', "TEXT DEFAULT 'Zone-4 (North)'"),
+        ('ward_id', "TEXT DEFAULT 'Ward-12'"),
+        ('assigned_officer_id', "INTEGER DEFAULT 1"),
+        ('updated_at', "TEXT DEFAULT NULL")
+    ]
 
-    if 'department' not in columns:
-        print("⚠️ Migrating database: Adding 'department' column...")
-        cur.execute("ALTER TABLE reports ADD COLUMN department TEXT DEFAULT 'General'")
+    for col_name, col_def in new_cols:
+        if col_name not in columns:
+            print(f"⚠️ Migrating database: Adding '{col_name}' column to reports...")
+            cur.execute(f"ALTER TABLE reports ADD COLUMN {col_name} {col_def}")
 
-    if 'avg_confidence' not in columns:
-        print("⚠️ Migrating database: Adding 'avg_confidence' column...")
-        cur.execute("ALTER TABLE reports ADD COLUMN avg_confidence REAL DEFAULT NULL")
+    # 3. Report Images Table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS report_images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            report_id INTEGER NOT NULL,
+            storage_path TEXT NOT NULL,
+            public_or_signed_url TEXT NOT NULL,
+            file_name TEXT,
+            mime_type TEXT,
+            file_size INTEGER,
+            latitude REAL,
+            longitude REAL,
+            captured_at TEXT,
+            uploaded_at TEXT,
+            FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+        )
+    """)
 
-    if 'latency_ms' not in columns:
-        print("⚠️ Migrating database: Adding 'latency_ms' column...")
-        cur.execute("ALTER TABLE reports ADD COLUMN latency_ms REAL DEFAULT NULL")
+    # 4. Migrate missing data for existing reports
+    cur.execute("SELECT id, image_path, summary, latitude, longitude, created_at, report_number FROM reports")
+    reports_rows = cur.fetchall()
+    for row in reports_rows:
+        r_id, r_img, r_sum, r_lat, r_lng, r_created, r_num = row
         
-    if 'class_confidences' not in columns:
-        print("⚠️ Migrating database: Adding 'class_confidences' column...")
-        cur.execute("ALTER TABLE reports ADD COLUMN class_confidences TEXT DEFAULT NULL")
+        # Populate report_number if missing
+        if not r_num:
+            gen_num = f"REP-2026-{r_id:04d}"
+            
+            # Determine issue type from summary
+            issue_type = "Civic Issue"
+            description = "Reported civic issue detected via AI visual scan."
+            if r_sum:
+                try:
+                    s_data = json.loads(r_sum)
+                    keys = [k.capitalize() for k in s_data.keys()]
+                    if keys:
+                        issue_type = ", ".join(keys)
+                        description = f"Automated detection of {issue_type} in civic area."
+                except Exception:
+                    pass
+
+            addr, landmark = reverse_geocode(r_lat, r_lng)
+
+            cur.execute("""
+                UPDATE reports
+                SET report_number = ?, issue_type = ?, description = ?, address = ?, landmark = ?, updated_at = ?
+                WHERE id = ?
+            """, (gen_num, issue_type, description, addr, landmark, r_created or datetime.now().isoformat(), r_id))
+
+        # Ensure report image entry exists in report_images
+        cur.execute("SELECT COUNT(*) FROM report_images WHERE report_id = ?", (r_id,))
+        if cur.fetchone()[0] == 0 and r_img:
+            file_name = os.path.basename(r_img)
+            cur.execute("""
+                INSERT INTO report_images (report_id, storage_path, public_or_signed_url, file_name, mime_type, file_size, latitude, longitude, captured_at, uploaded_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                r_id,
+                r_img,
+                f"/{r_img}" if not r_img.startswith('/') else r_img,
+                file_name,
+                "image/png" if file_name.endswith(".png") else "image/jpeg",
+                102400, # default size
+                r_lat,
+                r_lng,
+                r_created or datetime.now().isoformat(),
+                r_created or datetime.now().isoformat()
+            ))
 
     conn.commit()
     conn.close()
@@ -482,22 +625,60 @@ def predict():
             department = "Department of Environment"
             break
 
+    # Generate report number
+    cur.execute("SELECT COUNT(*) FROM reports")
+    report_count = cur.fetchone()[0] + 1
+    report_number = f"REP-2026-{report_count:04d}"
+    issue_type = ", ".join([k.capitalize() for k in summary.keys()]) if summary else "Civic Issue"
+    description = f"Automated detection of {issue_type} in civic area."
+    addr, landmark = reverse_geocode(latitude, longitude)
+    now_iso = datetime.now().isoformat()
+
     cur.execute("""
         INSERT INTO reports
-        (image_path, summary, severity, latitude, longitude, created_at, type, department, avg_confidence, latency_ms, class_confidences)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (image_path, summary, severity, latitude, longitude, created_at, type, department, avg_confidence, latency_ms, class_confidences, report_number, citizen_id, issue_type, description, status, address, landmark, zone_id, ward_id, assigned_officer_id, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         f"static/reports/{filename}",
         json.dumps(summary),
         severity,
         latitude,
         longitude,
-        datetime.now().isoformat(),
+        now_iso,
         'image',
         department,
         avg_conf,
         int(latency_ms),
-        json.dumps(class_confidences)
+        json.dumps(class_confidences),
+        report_number,
+        'CIT-1001',
+        issue_type,
+        description,
+        'Pending',
+        addr,
+        landmark,
+        'Zone-4 (North)',
+        'Ward-12',
+        1,
+        now_iso
+    ))
+    new_report_id = cur.lastrowid
+
+    # Insert into report_images
+    cur.execute("""
+        INSERT INTO report_images (report_id, storage_path, public_or_signed_url, file_name, mime_type, file_size, latitude, longitude, captured_at, uploaded_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        new_report_id,
+        f"static/reports/{filename}",
+        f"/static/reports/{filename}",
+        filename,
+        "image/png",
+        os.path.getsize(image_path) if image_path.exists() else 102400,
+        latitude,
+        longitude,
+        now_iso,
+        now_iso
     ))
 
     conn.commit()
@@ -859,14 +1040,224 @@ def fix_departments():
     return jsonify({"status": "success", "updated_count": count})
 
 # =====================================================
+# NAGRIK-SEVA AI ADMIN / OFFICER DASHBOARD ROUTES & APIs
+# =====================================================
+
+@app.route("/dashboard")
+def dashboard_view():
+    """
+    Nagrik-Seva AI Admin / Officer Dashboard Page.
+    """
+    return render_template("dashboard.html")
+
+@app.route("/officer-profile")
+def officer_profile_view():
+    """
+    Dedicated Officer Profile Page.
+    """
+    return render_template("dashboard.html", active_tab="profile")
+
+@app.route("/api/officer/profile", methods=["GET"])
+def api_officer_profile():
+    """
+    Fetch authenticated officer profile information.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT id, name, email, phone, profile_image_url, officer_id, designation, department, zone_id, ward_id, role, status, created_at, updated_at, last_login_at
+        FROM officers
+        ORDER BY id ASC LIMIT 1
+    """)
+    officer = cur.fetchone()
+    conn.close()
+
+    if not officer:
+        return jsonify({"error": "Officer profile not found"}), 404
+
+    return jsonify(dict(officer))
+
+@app.route("/api/dashboard/summary", methods=["GET"])
+def api_dashboard_summary():
+    """
+    Fetch database-derived total report counts and metrics summary.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    # Total reports count
+    cur.execute("SELECT COUNT(*) FROM reports")
+    total_reports = cur.fetchone()[0]
+
+    # Status counts
+    cur.execute("SELECT status, COUNT(*) FROM reports GROUP BY status")
+    status_counts = dict(cur.fetchall())
+
+    # Severity counts
+    cur.execute("SELECT severity, COUNT(*) FROM reports GROUP BY severity")
+    severity_counts = dict(cur.fetchall())
+
+    conn.close()
+
+    return jsonify({
+        "total_reports": total_reports,
+        "pending": status_counts.get("Pending", 0),
+        "in_progress": status_counts.get("In Progress", 0),
+        "resolved": status_counts.get("Resolved", 0),
+        "status_breakdown": status_counts,
+        "severity_breakdown": severity_counts,
+        "is_demo": False
+    })
+
+@app.route("/api/reports", methods=["GET"])
+def api_reports():
+    """
+    Get paginated, searchable, sorted list of reports.
+    """
+    page = int(request.args.get("page", 1))
+    limit = int(request.args.get("limit", 10))
+    search = request.args.get("q", "").strip()
+    status_filter = request.args.get("status", "").strip()
+    severity_filter = request.args.get("severity", "").strip()
+    offset = (page - 1) * limit
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    query = "SELECT r.*, o.name as assigned_officer_name FROM reports r LEFT JOIN officers o ON r.assigned_officer_id = o.id WHERE 1=1"
+    params = []
+
+    if search:
+        query += " AND (r.report_number LIKE ? OR r.issue_type LIKE ? OR r.address LIKE ? OR r.description LIKE ?)"
+        term = f"%{search}%"
+        params.extend([term, term, term, term])
+
+    if status_filter:
+        query += " AND r.status = ?"
+        params.append(status_filter)
+
+    if severity_filter:
+        query += " AND r.severity LIKE ?"
+        params.append(f"%{severity_filter}%")
+
+    # Count total matching
+    count_query = "SELECT COUNT(*) FROM (" + query + ")"
+    cur.execute(count_query, params)
+    total_count = cur.fetchone()[0]
+
+    # Fetch page
+    query += " ORDER BY r.id DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+
+    cur.execute(query, params)
+    rows = cur.fetchall()
+    conn.close()
+
+    reports_list = [dict(row) for row in rows]
+    return jsonify({
+        "reports": reports_list,
+        "total": total_count,
+        "page": page,
+        "limit": limit,
+        "pages": (total_count + limit - 1) // limit if limit > 0 else 1
+    })
+
+@app.route("/api/reports/<int:report_id>", methods=["GET"])
+def api_report_detail(report_id):
+    """
+    Fetch full detail view for a specific civic report.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT r.*, o.name as assigned_officer_name, o.designation as assigned_officer_designation, o.email as assigned_officer_email
+        FROM reports r
+        LEFT JOIN officers o ON r.assigned_officer_id = o.id
+        WHERE r.id = ?
+    """, (report_id,))
+    report = cur.fetchone()
+
+    if not report:
+        conn.close()
+        return jsonify({"error": "Report not found"}), 404
+
+    report_dict = dict(report)
+
+    # Fetch report images
+    cur.execute("""
+        SELECT id, storage_path, public_or_signed_url, file_name, mime_type, file_size, latitude, longitude, captured_at, uploaded_at
+        FROM report_images
+        WHERE report_id = ?
+    """, (report_id,))
+    images = [dict(img) for img in cur.fetchall()]
+
+    conn.close()
+
+    # Fallback to main image_path if no report_images entries
+    if not images and report_dict.get("image_path"):
+        images = [{
+            "id": 1,
+            "storage_path": report_dict["image_path"],
+            "public_or_signed_url": f"/{report_dict['image_path']}",
+            "file_name": os.path.basename(report_dict["image_path"]),
+            "mime_type": "image/png",
+            "file_size": 102400,
+            "latitude": report_dict.get("latitude"),
+            "longitude": report_dict.get("longitude"),
+            "captured_at": report_dict.get("created_at"),
+            "uploaded_at": report_dict.get("created_at")
+        }]
+
+    report_dict["images"] = images
+    return jsonify(report_dict)
+
+@app.route("/api/reports/<int:report_id>/images", methods=["GET"])
+def api_report_images(report_id):
+    """
+    Fetch image metadata associated with a report.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT id, report_id, storage_path, public_or_signed_url, file_name, mime_type, file_size, latitude, longitude, captured_at, uploaded_at
+        FROM report_images
+        WHERE report_id = ?
+    """, (report_id,))
+    images = [dict(img) for img in cur.fetchall()]
+    conn.close()
+
+    return jsonify({"report_id": report_id, "images": images})
+
+@app.route("/api/reports/map", methods=["GET"])
+def api_reports_map():
+    """
+    Fetch geolocation records for interactive Leaflet map markers.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT id, report_number, issue_type, severity, status, created_at, latitude, longitude, address, landmark, image_path
+        FROM reports
+        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+    """)
+    rows = cur.fetchall()
+    conn.close()
+
+    map_points = [dict(row) for row in rows]
+    return jsonify({"markers": map_points})
+
+# =====================================================
 # APPLICATION ENTRY POINT
 # =====================================================
 
 if __name__ == "__main__":
-    app.run(
-        host="127.0.0.1",   # explicit localhost
-        port=8000,          # avoids blocked port 5000
-        debug=True
-    )
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="127.0.0.1", port=5000, debug=False)

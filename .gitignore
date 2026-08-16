@@ -27,3 +27,9 @@ static/reports/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Database files
+*.db
+
+# Logs
+logs/
