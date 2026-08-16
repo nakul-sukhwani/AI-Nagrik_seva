@@ -113,5 +113,5 @@ export default function Map({ points, selectedId, onMarkerClick }: MapProps) {
     }
   }, [selectedId]);
 
-  return <div ref={containerRef} style={{ height: '100%', width: '100%' }} />;
+  return <div ref={containerRef} className="relative z-0 isolate w-full h-full" style={{ height: '100%', width: '100%' }} />;
 }

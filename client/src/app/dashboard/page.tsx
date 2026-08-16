@@ -387,7 +387,7 @@ export default function Dashboard() {
 
       {/* ══════════════ REPORT DETAIL MODAL ══════════════ */}
       {(selectedReport || detailLoading) && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => { setSelectedReport(null); setSelectedMapId(null); }}>
+        <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => { setSelectedReport(null); setSelectedMapId(null); }}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             {detailLoading ? (
               <div className="flex items-center justify-center h-48">
