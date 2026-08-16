@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart City — Authentication Portal</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Outfit', 'sans-serif'] },
+                }
+            }
+        }
+    </script>
+    <!-- Custom styling for extra polish -->
+    <style>
+        body {
+            background: radial-gradient(circle at top right, #111827, #030712);
+            font-family: 'Outfit', sans-serif;
+        }
+        .glass-card {
+            background: rgba(17, 24, 39, 0.7);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glow-button {
+            transition: all 0.3s ease;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+        }
+        .glow-button:hover {
+            box-shadow: 0 0 25px rgba(59, 130, 246, 0.7);
+        }
+    </style>
+</head>
+<body class="h-full text-slate-100 flex flex-col justify-center items-center p-4">
+
+    <div class="w-full max-w-4xl flex flex-col items-center">
+        <!-- Logo / Brand Header -->
+        <div class="flex items-center gap-3 mb-8 text-center">
+            <span class="text-4xl">🏙️</span>
+            <div class="text-left">
+                <h1 class="text-2xl md:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-300 to-purple-400 tracking-wide">
+                    Smart City Command Hub
+                </h1>
+                <p class="text-xs text-slate-400 tracking-widest uppercase">Municipal Management & Reporting</p>
+            </div>
+        </div>
+
+        <!-- Role Selection Container -->
+        <div class="w-full glass-card rounded-2xl p-6 md:p-8 shadow-2xl transition-all duration-500">
+            <div class="text-center mb-8">
+                <h2 class="text-xl md:text-2xl font-bold text-white mb-2">Welcome</h2>
+                <p class="text-slate-400 text-sm">Please select your portal to log in</p>
+            </div>
+
+            <!-- Role Tabs (Cards) -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8" id="role-selector">
+                <!-- Officer Card -->
+                <button onclick="selectRole('officer')" class="group flex flex-col items-center text-center p-6 rounded-xl border border-slate-700/50 bg-slate-900/50 hover:bg-blue-950/20 hover:border-blue-500/50 transition-all duration-300">
+                    <div class="w-16 h-16 rounded-full bg-blue-500/10 text-blue-400 flex items-center justify-center text-3xl mb-4 group-hover:scale-110 transition-transform duration-300">
+                        🛡️
+                    </div>
+                    <h3 class="text-lg font-bold text-white group-hover:text-blue-400 transition-colors">OFFICER</h3>
+                    <p class="text-xs text-slate-400 mt-2">Access municipal analytics, maps & issue resolution</p>
+                </button>
+
+                <!-- Citizen Card -->
+                <button onclick="selectRole('citizen')" class="group flex flex-col items-center text-center p-6 rounded-xl border border-slate-700/50 bg-slate-900/50 hover:bg-emerald-950/20 hover:border-emerald-500/50 transition-all duration-300">
+                    <div class="w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-3xl mb-4 group-hover:scale-110 transition-transform duration-300">
+                        🙋
+                    </div>
+                    <h3 class="text-lg font-bold text-white group-hover:text-emerald-400 transition-colors">CITIZEN</h3>
+                    <p class="text-xs text-slate-400 mt-2">Report civic issues and scan status using visual AI</p>
+                </button>
+
+                <!-- Worker Card -->
+                <button onclick="selectRole('worker')" class="group flex flex-col items-center text-center p-6 rounded-xl border border-slate-700/50 bg-slate-900/50 hover:bg-amber-950/20 hover:border-amber-500/50 transition-all duration-300">
+                    <div class="w-16 h-16 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center text-3xl mb-4 group-hover:scale-110 transition-transform duration-300">
+                        🛠️
+                    </div>
+                    <h3 class="text-lg font-bold text-white group-hover:text-amber-400 transition-colors">FIELD WORKER</h3>
+                    <p class="text-xs text-slate-400 mt-2">Manage field tasks and update issue resolutions</p>
+                </button>
+            </div>
+
+            <!-- Form Containers (Initially hidden, shown based on role selection) -->
+            <div id="form-container" class="hidden border-t border-slate-800 pt-6">
+                <!-- Back to Roles Button -->
+                <button onclick="resetRoles()" class="text-xs text-slate-400 hover:text-white mb-6 flex items-center gap-1">
+                    &larr; Back to roles
+                </button>
+
+                <!-- ERROR / SUCCESS ALERTS -->
+                <div id="alert-error" class="hidden mb-4 p-3 rounded-lg bg-red-950/50 border border-red-800 text-red-300 text-sm"></div>
+                <div id="alert-success" class="hidden mb-4 p-3 rounded-lg bg-emerald-950/50 border border-emerald-800 text-emerald-300 text-sm"></div>
+
+                <!-- =====================================================
+                     OFFICER FORM SECTION
+                ===================================================== -->
+                <div id="form-officer" class="hidden">
+                    <div class="flex border-b border-slate-800 mb-6">
+                        <button onclick="switchAuthTab('officer', 'login')" id="tab-officer-login" class="px-4 py-2 text-sm font-semibold border-b-2 border-blue-500 text-white">
+                            Officer Sign In
+                        </button>
+                        <button onclick="switchAuthTab('officer', 'setup')" id="tab-officer-setup" class="px-4 py-2 text-sm font-semibold text-slate-400 hover:text-white">
+                            Set Up Officer Profile
+                        </button>
+                    </div>
+
+                    <!-- Officer Login -->
+                    <form id="officer-login-form" onsubmit="handleOfficerLogin(event)" class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Officer ID</label>
+                            <input type="text" id="officer-login-id" placeholder="e.g. OFF-2026-001" required
+                                   class="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Password</label>
+                            <input type="password" id="officer-login-password" placeholder="••••••••" required
+                                   class="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500">
+                        </div>
+                        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg text-sm glow-button">
+                            Login as Officer
+                        </button>
+                        <p class="text-xs text-slate-500 text-center">Demo login: <span class="text-blue-400">OFF-2026-001</span> with password <span class="text-blue-400">admin123</span></p>
+                    </form>
+
+                    <!-- Officer Register -->
+                    <form id="officer-setup-form" onsubmit="handleOfficerRegister(event)" class="hidden space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Full Name</label>
+                                <input type="text" id="officer-reg-name" placeholder="e.g. Rajesh Kumar" required
+                                       class="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Email Address</label>
+                                <input type="email" id="officer-reg-email" placeholder="e.g. officer@nagrikseva.gov.in" required
+                                       class="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Designation</label>
+                                <input type="text" id="officer-reg-designation" placeholder="e.g. Senior Ward Officer" required
+                                       class="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Department</label>
+                                <select id="officer-reg-department" required
+                                        class="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500">
+                                    <option value="Roads & Sanitation">Roads & Sanitation</option>
+                                    <option value="Roads Department">Roads Department</option>
+                                    <option value="Department of Environment">Sanitation / Environment</option>
+                                    <option value="General">General / Administrative</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Set Password</label>
+                            <input type="password" id="officer-reg-password" placeholder="Minimum 6 characters" required minlength="6"
+                                   class="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500">
+                        </div>
+                        <button type="submit" class="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-3 rounded-lg text-sm">
+                            Create Account & Generate Officer ID
+                        </button>
+                    </form>
+                </div>
+
+
+                <!-- =====================================================
+                     CITIZEN FORM SECTION
+                ===================================================== -->
+                <div id="form-citizen" class="hidden space-y-6">
+                    <div>
+                        <h3 class="text-lg font-bold text-white mb-2">Access Citizen Reporting Portal</h3>
+                        <p class="text-slate-400 text-xs">Submit civic issues such as potholes or garbage dumps directly using visual scans.</p>
+                    </div>
+
+                    <form onsubmit="handleCitizenLogin(event)" class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Citizen Display Name</label>
+                            <input type="text" id="citizen-name" placeholder="Guest Citizen"
+                                   class="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-emerald-500">
+                        </div>
+                        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-lg text-sm transition-colors">
+                            Enter Civic Reporting Portal
+                        </button>
+                    </form>
+                </div>
+
+
+                <!-- =====================================================
+                     WORKER FORM SECTION
+                ===================================================== -->
+                <div id="form-worker" class="hidden">
+                    <div class="flex border-b border-slate-800 mb-6">
+                        <button onclick="switchAuthTab('worker', 'login')" id="tab-worker-login" class="px-4 py-2 text-sm font-semibold border-b-2 border-amber-500 text-white">
+                            Worker Sign In
+                        </button>
+                        <button onclick="switchAuthTab('worker', 'setup')" id="tab-worker-setup" class="px-4 py-2 text-sm font-semibold text-slate-400 hover:text-white">
+                            Set Up Worker Profile
+                        </button>
+                    </div>
+
+                    <!-- Worker Login -->
+                    <form id="worker-login-form" onsubmit="handleWorkerLogin(event)" class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Worker ID</label>
+                            <input type="text" id="worker-login-id" placeholder="e.g. WRK-2026-001" required
+                                   class="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Password</label>
+                            <input type="password" id="worker-login-password" placeholder="••••••••" required
+                                   class="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-500">
+                        </div>
+                        <button type="submit" class="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg text-sm transition-colors shadow-lg shadow-amber-900/30">
+                            Login as Field Worker
+                        </button>
+                        <p class="text-xs text-slate-500 text-center">Demo login: <span class="text-amber-400">WRK-2026-001</span> with password <span class="text-amber-400">worker123</span></p>
+                    </form>
+
+                    <!-- Worker Register -->
+                    <form id="worker-setup-form" onsubmit="handleWorkerRegister(event)" class="hidden space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Full Name</label>
+                                <input type="text" id="worker-reg-name" placeholder="e.g. Amit Sharma" required
+                                       class="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Email Address</label>
+                                <input type="email" id="worker-reg-email" placeholder="e.g. worker@smartcity.gov.in" required
+                                       class="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-500">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Assigned Department</label>
+                            <select id="worker-reg-department" required
+                                    class="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-500">
+                                <option value="Roads Department">Roads Department</option>
+                                <option value="Department of Environment">Sanitation / Environment</option>
+                                <option value="General">General / Roads & Sanitation</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Set Password</label>
+                            <input type="password" id="worker-reg-password" placeholder="Minimum 6 characters" required minlength="6"
+                                   class="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-500">
+                        </div>
+                        <button type="submit" class="w-full bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-700 hover:to-yellow-700 text-white font-bold py-3 rounded-lg text-sm">
+                            Create Account & Generate Worker ID
+                        </button>
+                    </form>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Modal PopUp -->
+    <div id="id-modal" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+        <div class="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-6 shadow-2xl text-center space-y-4">
+            <div class="w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-3xl mx-auto">
+                🎉
+            </div>
+            <h3 class="text-xl font-bold text-white">Registration Successful!</h3>
+            <p class="text-slate-400 text-sm">Your unique identification credential has been generated. Use this ID along with your password to log in.</p>
+            <div class="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                <span class="text-xs text-slate-400 uppercase font-semibold block mb-1">Generated ID</span>
+                <span id="modal-generated-id" class="text-2xl font-mono font-bold text-blue-400 tracking-wider">OFF-XXXX</span>
+            </div>
+            <button onclick="closeSuccessModal()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg text-sm">
+                Proceed to Login
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let selectedRoleName = null;
+
+        function selectRole(role) {
+            selectedRoleName = role;
+            document.getElementById('role-selector').classList.add('hidden');
+            document.getElementById('form-container').classList.remove('hidden');
+
+            // Hide all sub forms first
+            document.getElementById('form-officer').classList.add('hidden');
+            document.getElementById('form-citizen').classList.add('hidden');
+            document.getElementById('form-worker').classList.add('hidden');
+
+            // Show selected form
+            document.getElementById(`form-${role}`).classList.remove('hidden');
+            hideAlerts();
+        }
+
+        function resetRoles() {
+            selectedRoleName = null;
+            document.getElementById('role-selector').classList.remove('hidden');
+            document.getElementById('form-container').classList.add('hidden');
+            hideAlerts();
+        }
+
+        function switchAuthTab(role, tab) {
+            const loginTabBtn = document.getElementById(`tab-${role}-login`);
+            const setupTabBtn = document.getElementById(`tab-${role}-setup`);
+            const loginForm = document.getElementById(`${role}-login-form`);
+            const setupForm = document.getElementById(`${role}-setup-form`);
+
+            if (tab === 'login') {
+                loginTabBtn.className = `px-4 py-2 text-sm font-semibold border-b-2 border-${role === 'officer' ? 'blue' : 'amber'}-500 text-white`;
+                setupTabBtn.className = 'px-4 py-2 text-sm font-semibold text-slate-400 hover:text-white';
+                loginForm.classList.remove('hidden');
+                setupForm.classList.add('hidden');
+            } else {
+                setupTabBtn.className = `px-4 py-2 text-sm font-semibold border-b-2 border-${role === 'officer' ? 'blue' : 'amber'}-500 text-white`;
+                loginTabBtn.className = 'px-4 py-2 text-sm font-semibold text-slate-400 hover:text-white';
+                setupForm.classList.remove('hidden');
+                loginForm.classList.add('hidden');
+            }
+            hideAlerts();
+        }
+
+        function showError(msg) {
+            const errAlert = document.getElementById('alert-error');
+            errAlert.innerText = msg;
+            errAlert.classList.remove('hidden');
+            document.getElementById('alert-success').classList.add('hidden');
+        }
+
+        function showSuccess(msg) {
+            const succAlert = document.getElementById('alert-success');
+            succAlert.innerText = msg;
+            succAlert.classList.remove('hidden');
+            document.getElementById('alert-error').classList.add('hidden');
+        }
+
+        function hideAlerts() {
+            document.getElementById('alert-error').classList.add('hidden');
+            document.getElementById('alert-success').classList.add('hidden');
+        }
+
+        // --- SUBMITS ---
+
+        async function handleOfficerLogin(e) {
+            e.preventDefault();
+            hideAlerts();
+            const officer_id = document.getElementById('officer-login-id').value.trim();
+            const password = document.getElementById('officer-login-password').value;
+
+            try {
+                const res = await fetch('/api/auth/login-officer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ officer_id, password })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Authentication failed');
+                window.location.href = data.redirect;
+            } catch (err) {
+                showError(err.message);
+            }
+        }
+
+        async function handleOfficerRegister(e) {
+            e.preventDefault();
+            hideAlerts();
+            const name = document.getElementById('officer-reg-name').value.trim();
+            const email = document.getElementById('officer-reg-email').value.trim();
+            const designation = document.getElementById('officer-reg-designation').value.trim();
+            const department = document.getElementById('officer-reg-department').value;
+            const password = document.getElementById('officer-reg-password').value;
+
+            try {
+                const res = await fetch('/api/auth/register-officer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, email, designation, department, password })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Setup failed');
+                
+                // Show Success Modal
+                document.getElementById('modal-generated-id').innerText = data.officer_id;
+                document.getElementById('modal-generated-id').className = "text-2xl font-mono font-bold text-blue-400 tracking-wider";
+                document.getElementById('id-modal').classList.remove('hidden');
+            } catch (err) {
+                showError(err.message);
+            }
+        }
+
+        async function handleWorkerLogin(e) {
+            e.preventDefault();
+            hideAlerts();
+            const worker_id = document.getElementById('worker-login-id').value.trim();
+            const password = document.getElementById('worker-login-password').value;
+
+            try {
+                const res = await fetch('/api/auth/login-worker', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ worker_id, password })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Authentication failed');
+                window.location.href = data.redirect;
+            } catch (err) {
+                showError(err.message);
+            }
+        }
+
+        async function handleWorkerRegister(e) {
+            e.preventDefault();
+            hideAlerts();
+            const name = document.getElementById('worker-reg-name').value.trim();
+            const email = document.getElementById('worker-reg-email').value.trim();
+            const department = document.getElementById('worker-reg-department').value;
+            const password = document.getElementById('worker-reg-password').value;
+
+            try {
+                const res = await fetch('/api/auth/register-worker', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, email, department, password })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Setup failed');
+                
+                // Show Success Modal
+                document.getElementById('modal-generated-id').innerText = data.worker_id;
+                document.getElementById('modal-generated-id').className = "text-2xl font-mono font-bold text-amber-400 tracking-wider";
+                document.getElementById('id-modal').classList.remove('hidden');
+            } catch (err) {
+                showError(err.message);
+            }
+        }
+
+        async function handleCitizenLogin(e) {
+            e.preventDefault();
+            hideAlerts();
+            const name = document.getElementById('citizen-name').value.trim() || 'Guest Citizen';
+
+            try {
+                const res = await fetch('/api/auth/login-user', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Access failed');
+                window.location.href = data.redirect;
+            } catch (err) {
+                showError(err.message);
+            }
+        }
+
+        function closeSuccessModal() {
+            document.getElementById('id-modal').classList.add('hidden');
+            if (selectedRoleName) {
+                switchAuthTab(selectedRoleName, 'login');
+            }
+        }
+    </script>
+</body>
+</html>

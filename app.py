@@ -11,6 +11,7 @@ Description:
 - Visualize history, stats & heatmaps
 """
 import time
+import random
 # =====================================================
 # STANDARD LIBRARIES
 # =====================================================
@@ -32,9 +33,16 @@ from typing import Dict, List, Tuple
 # =====================================================
 # THIRD-PARTY LIBRARIES
 # =====================================================
-from flask import Flask, redirect, render_template, request, jsonify, Response, send_file
+from flask import Flask, redirect, render_template, request, jsonify, Response, send_file, session, url_for
+from werkzeug.security import generate_password_hash, check_password_hash
 from ultralytics import YOLO
 from PIL import Image
+
+# =====================================================
+# ROUTING ENGINE
+# =====================================================
+
+import routing_engine
 
 # =====================================================
 # CONFIGURATION
@@ -78,6 +86,7 @@ system_logger.info("Application configured and starting up.")
 # =====================================================
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "smart-city-secret-key-1234")
 
 # =====================================================
 # MODEL LOADING
@@ -125,7 +134,7 @@ def reverse_geocode(lat, lng):
 
 def init_db():
     """
-    Create officers, reports, and report_images tables if they do not exist,
+    Create officers, workers, reports, and report_images tables if they do not exist,
     and migrate missing columns for the Nagrik-Seva AI Admin/Officer Dashboard.
     """
     conn = sqlite3.connect(DB_PATH)
@@ -146,18 +155,26 @@ def init_db():
             ward_id TEXT,
             role TEXT DEFAULT 'Ward Officer',
             status TEXT DEFAULT 'Active',
+            password TEXT,
             created_at TEXT,
             updated_at TEXT,
             last_login_at TEXT
         )
     """)
 
+    # Officers Migration: Add password column if it doesn't exist
+    cur.execute("PRAGMA table_info(officers)")
+    officer_columns = [info[1] for info in cur.fetchall()]
+    if 'password' not in officer_columns:
+        print("⚠️ Migrating database: Adding 'password' column to officers...")
+        cur.execute("ALTER TABLE officers ADD COLUMN password TEXT")
+
     # Seed demo officer if empty
     cur.execute("SELECT COUNT(*) FROM officers")
     if cur.fetchone()[0] == 0:
         cur.execute("""
-            INSERT INTO officers (name, email, phone, profile_image_url, officer_id, designation, department, zone_id, ward_id, role, status, created_at, updated_at, last_login_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
+            INSERT INTO officers (name, email, phone, profile_image_url, officer_id, designation, department, zone_id, ward_id, role, status, password, created_at, updated_at, last_login_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
         """, (
             'Rajesh Kumar (DEMO)',
             'officer.rajesh@nagrikseva.gov.in',
@@ -169,7 +186,42 @@ def init_db():
             'Zone-4 (North)',
             'Ward-12',
             'Ward Officer',
-            'Active'
+            'Active',
+            generate_password_hash('admin123')
+        ))
+    else:
+        # Update existing demo officer password if null or empty
+        cur.execute("""
+            UPDATE officers 
+            SET password = ? 
+            WHERE officer_id = 'OFF-2026-001' AND (password IS NULL OR password = '')
+        """, (generate_password_hash('admin123'),))
+
+    # 1.b Workers Table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS workers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            worker_id TEXT UNIQUE NOT NULL,
+            department TEXT NOT NULL,
+            password TEXT NOT NULL,
+            created_at TEXT
+        )
+    """)
+
+    # Seed demo worker if empty
+    cur.execute("SELECT COUNT(*) FROM workers")
+    if cur.fetchone()[0] == 0:
+        cur.execute("""
+            INSERT INTO workers (name, email, worker_id, department, password, created_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
+        """, (
+            'Amit Sharma (DEMO)',
+            'worker.amit@smartcity.gov.in',
+            'WRK-2026-001',
+            'Roads Department',
+            generate_password_hash('worker123')
         ))
 
     # 2. Reports Table
@@ -559,10 +611,319 @@ def process_video_frames(video_path: str) -> Tuple[Dict[str, int], List[str], fl
 @app.route("/")
 def index():
     """
-    Homepage with stats preview.
+    Login landing portal.
     """
+    # If already logged in, redirect to respective dashboard
+    if session.get('officer_logged_in'):
+        return redirect(url_for('dashboard_view'))
+    elif session.get('worker_logged_in'):
+        return redirect(url_for('worker_dashboard_view'))
+    elif session.get('user_logged_in'):
+        return redirect(url_for('command_center'))
+    return render_template("login.html")
+
+
+@app.route("/command-center")
+def command_center():
+    """
+    Smart City Command Center (Citizen Input / AI Detection).
+    """
+    if not session.get('user_logged_in') and not session.get('officer_logged_in') and not session.get('worker_logged_in'):
+        return redirect(url_for('index'))
     stats = get_home_stats()
     return render_template("index.html", stats=stats)
+
+
+# =====================================================
+# AUTHENTICATION APIs
+# =====================================================
+
+@app.route("/api/auth/register-officer", methods=["POST"])
+def api_register_officer():
+    data = request.get_json() or {}
+    name = data.get("name")
+    email = data.get("email")
+    designation = data.get("designation", "Ward Officer")
+    department = data.get("department", "Roads & Sanitation")
+    password = data.get("password")
+
+    if not name or not email or not password:
+        return jsonify({"error": "Missing required fields (name, email, password)"}), 400
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    try:
+        # Check if email already exists
+        cur.execute("SELECT id FROM officers WHERE email = ?", (email,))
+        if cur.fetchone():
+            return jsonify({"error": "An officer with this email already exists"}), 400
+
+        # Generate unique Officer ID (e.g. OFF-2026-XXXX)
+        while True:
+            rand_code = random.randint(1000, 9999)
+            officer_id = f"OFF-2026-{rand_code}"
+            cur.execute("SELECT id FROM officers WHERE officer_id = ?", (officer_id,))
+            if not cur.fetchone():
+                break
+
+        hashed_password = generate_password_hash(password)
+        
+        cur.execute("""
+            INSERT INTO officers (name, email, officer_id, designation, department, password, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+        """, (name, email, officer_id, designation, department, hashed_password))
+        conn.commit()
+        
+        return jsonify({"status": "success", "officer_id": officer_id, "name": name})
+    except Exception as e:
+        error_logger.error(f"Officer registration failed: {str(e)}")
+        return jsonify({"error": "Database error during registration"}), 500
+    finally:
+        conn.close()
+
+
+@app.route("/api/auth/login-officer", methods=["POST"])
+def api_login_officer():
+    data = request.get_json() or {}
+    officer_id = data.get("officer_id")
+    password = data.get("password")
+
+    if not officer_id or not password:
+        return jsonify({"error": "Officer ID and password are required"}), 400
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT name, password, email, department 
+            FROM officers 
+            WHERE officer_id = ?
+        """, (officer_id,))
+        row = cur.fetchone()
+        
+        if not row:
+            return jsonify({"error": "Invalid Officer ID"}), 401
+            
+        name, hashed_pw, email, dept = row
+        
+        if not hashed_pw or not check_password_hash(hashed_pw, password):
+            return jsonify({"error": "Invalid password"}), 401
+
+        # Update last login time
+        cur.execute("UPDATE officers SET last_login_at = datetime('now') WHERE officer_id = ?", (officer_id,))
+        conn.commit()
+
+        # Set session
+        session.clear()
+        session['role'] = 'officer'
+        session['officer_logged_in'] = True
+        session['officer_id'] = officer_id
+        session['name'] = name
+        session['email'] = email
+        session['department'] = dept
+        
+        return jsonify({"status": "success", "redirect": url_for("dashboard_view")})
+    except Exception as e:
+        error_logger.error(f"Officer login error: {str(e)}")
+        return jsonify({"error": "Authentication server error"}), 500
+    finally:
+        conn.close()
+
+
+@app.route("/api/auth/register-worker", methods=["POST"])
+def api_register_worker():
+    data = request.get_json() or {}
+    name = data.get("name")
+    email = data.get("email")
+    department = data.get("department", "Roads Department")
+    password = data.get("password")
+
+    if not name or not email or not password:
+        return jsonify({"error": "Missing required fields (name, email, password)"}), 400
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    try:
+        cur.execute("SELECT id FROM workers WHERE email = ?", (email,))
+        if cur.fetchone():
+            return jsonify({"error": "A worker with this email already exists"}), 400
+
+        # Generate unique Worker ID (e.g. WRK-2026-XXXX)
+        while True:
+            rand_code = random.randint(1000, 9999)
+            worker_id = f"WRK-2026-{rand_code}"
+            cur.execute("SELECT id FROM workers WHERE worker_id = ?", (worker_id,))
+            if not cur.fetchone():
+                break
+
+        hashed_password = generate_password_hash(password)
+        
+        cur.execute("""
+            INSERT INTO workers (name, email, worker_id, department, password, created_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
+        """, (name, email, worker_id, department, hashed_password))
+        conn.commit()
+        
+        return jsonify({"status": "success", "worker_id": worker_id, "name": name})
+    except Exception as e:
+        error_logger.error(f"Worker registration failed: {str(e)}")
+        return jsonify({"error": "Database error during registration"}), 500
+    finally:
+        conn.close()
+
+
+@app.route("/api/auth/login-worker", methods=["POST"])
+def api_login_worker():
+    data = request.get_json() or {}
+    worker_id = data.get("worker_id")
+    password = data.get("password")
+
+    if not worker_id or not password:
+        return jsonify({"error": "Worker ID and password are required"}), 400
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT name, password, email, department 
+            FROM workers 
+            WHERE worker_id = ?
+        """, (worker_id,))
+        row = cur.fetchone()
+        
+        if not row:
+            return jsonify({"error": "Invalid Worker ID"}), 401
+            
+        name, hashed_pw, email, dept = row
+        
+        if not check_password_hash(hashed_pw, password):
+            return jsonify({"error": "Invalid password"}), 401
+
+        # Set session
+        session.clear()
+        session['role'] = 'worker'
+        session['worker_logged_in'] = True
+        session['worker_id'] = worker_id
+        session['name'] = name
+        session['email'] = email
+        session['department'] = dept
+        
+        return jsonify({"status": "success", "redirect": url_for("worker_dashboard_view")})
+    except Exception as e:
+        error_logger.error(f"Worker login error: {str(e)}")
+        return jsonify({"error": "Authentication server error"}), 500
+    finally:
+        conn.close()
+
+
+@app.route("/api/auth/login-user", methods=["POST"])
+def api_login_user():
+    data = request.get_json() or {}
+    name = data.get("name", "Guest Citizen").strip()
+    if not name:
+        name = "Guest Citizen"
+
+    # Set session
+    session.clear()
+    session['role'] = 'user'
+    session['user_logged_in'] = True
+    session['name'] = name
+    session['citizen_id'] = f"CIT-{random.randint(1000, 9999)}"
+
+    return jsonify({"status": "success", "redirect": url_for("command_center")})
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("index"))
+
+
+# =====================================================
+# FIELD WORKER DASHBOARD & APIs
+# =====================================================
+
+@app.route("/worker-dashboard")
+def worker_dashboard_view():
+    """
+    Field Worker Dashboard Page.
+    """
+    if not session.get('worker_logged_in'):
+        return redirect(url_for('index'))
+    return render_template("worker_dashboard.html")
+
+
+@app.route("/api/worker/reports", methods=["GET"])
+def api_worker_reports():
+    """
+    Fetch reports matching the logged-in worker's department.
+    """
+    if not session.get('worker_logged_in'):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    dept = session.get('department', 'General')
+    
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT id, report_number, issue_type, severity, status, created_at, latitude, longitude, address, landmark, image_path, description
+            FROM reports
+            WHERE department = ?
+            ORDER BY id DESC
+        """, (dept,))
+        reports = [dict(row) for row in cur.fetchall()]
+        return jsonify({"status": "success", "reports": reports, "worker_name": session.get('name'), "department": dept})
+    except Exception as e:
+        error_logger.error(f"Worker reports fetch error: {str(e)}")
+        return jsonify({"error": "Database error"}), 500
+    finally:
+        conn.close()
+
+
+@app.route("/api/reports/<int:report_id>/status", methods=["POST"])
+def api_update_report_status(report_id):
+    """
+    Update status of a report (Pending, In Progress, Resolved).
+    """
+    # Allow either Officer or Worker to update report status
+    if not session.get('officer_logged_in') and not session.get('worker_logged_in'):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    new_status = data.get("status")
+
+    if new_status not in ["Pending", "In Progress", "Resolved"]:
+        return jsonify({"error": "Invalid status value"}), 400
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    try:
+        # Check if report exists
+        cur.execute("SELECT id FROM reports WHERE id = ?", (report_id,))
+        if not cur.fetchone():
+            return jsonify({"error": "Report not found"}), 404
+
+        cur.execute("""
+            UPDATE reports 
+            SET status = ?, updated_at = datetime('now')
+            WHERE id = ?
+        """, (new_status, report_id))
+        conn.commit()
+
+        return jsonify({"status": "success", "message": f"Report status updated to {new_status}"})
+    except Exception as e:
+        error_logger.error(f"Report status update error: {str(e)}")
+        return jsonify({"error": "Database error"}), 500
+    finally:
+        conn.close()
 
 
 @app.route("/predict", methods=["POST"])
@@ -615,15 +976,20 @@ def predict():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    # Determine department based on detected issues
-    department = "General"
-    for class_name in summary.keys():
-        if "pothole" in class_name.lower():
-            department = "Roads Department"
-            break 
-        elif "garbage" in class_name.lower():
-            department = "Department of Environment"
-            break
+    # ── Routing Engine: map detected class → department + officer ────────
+    # Pick the first detected class name as the primary issue type.
+    # YOLO class names (e.g. "pothole", "garbage") are title-cased to match
+    # the routing engine's lookup keys (e.g. "Pothole", "Garbage").
+    primary_issue = next(iter(summary.keys()), "").strip().title() if summary else "Civic Issue"
+    zone_id = 'Zone-4 (North)'  # Default zone; extend with GPS→zone lookup later
+    routing_result = routing_engine.route_issue(primary_issue, zone_id)
+    department = routing_result["department"]
+    routed_officer_id_str = routing_result["officer_id"]   # e.g. 'OFF-2026-001'
+
+    # Resolve the routing officer_id string to the integer FK used in reports.assigned_officer_id
+    cur.execute("SELECT id FROM officers WHERE officer_id = ?", (routed_officer_id_str,))
+    officer_row = cur.fetchone()
+    assigned_officer_fk = officer_row[0] if officer_row else 1  # fallback to seeded officer
 
     # Generate report number
     cur.execute("SELECT COUNT(*) FROM reports")
@@ -657,9 +1023,9 @@ def predict():
         'Pending',
         addr,
         landmark,
-        'Zone-4 (North)',
+        zone_id,
         'Ward-12',
-        1,
+        assigned_officer_fk,
         now_iso
     ))
     new_report_id = cur.lastrowid
@@ -738,8 +1104,9 @@ def predict():
         "image": img_base64,
         "summary": summary,
         "severity": severity,
-        "report_id": cur.lastrowid,
+        "report_id": new_report_id,
         "department": department,
+        "routing": routing_result,
         "scoring": scoring,
         "explainability": explainability
     })
@@ -1040,6 +1407,147 @@ def fix_departments():
     return jsonify({"status": "success", "updated_count": count})
 
 # =====================================================
+# CIVIC ISSUE ROUTING API  (Public RESTful endpoint)
+# =====================================================
+
+@app.route("/api/route-issue", methods=["POST"])
+def api_route_issue():
+    """
+    POST /api/route-issue
+    ----------------------
+    Accepts a classified civic issue tag and optional location details,
+    runs the routing engine, inserts a report stub into the DB (status=Pending),
+    and returns the full assigned report object in JSON.
+
+    Request body (JSON):
+        issue_type  str   Required. E.g. "Pothole", "Garbage", "Broken Streetlight".
+        zone_id     str   Optional. E.g. "Zone-4 (North)". Defaults to Zone-4.
+        latitude    float Optional.
+        longitude   float Optional.
+        description str   Optional. Freeform text from citizen.
+
+    Response (JSON):
+        report_id           int
+        report_number       str   e.g. "REP-2026-0042"
+        issue_type          str
+        department          str
+        assigned_officer    dict  {officer_id, name, designation}
+        zone_id             str
+        status              str   Always "Pending" on creation.
+        timestamp           str   ISO 8601
+        address             str   Reverse-geocoded or coordinate fallback.
+        is_fallback_routing bool  True if issue_type was unrecognised.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+
+    issue_type  = data.get("issue_type", "").strip()
+    zone_id     = data.get("zone_id", "Zone-4 (North)").strip()
+    description = data.get("description", "").strip()
+    latitude    = data.get("latitude")
+    longitude   = data.get("longitude")
+
+    if not issue_type:
+        return jsonify({"error": "'issue_type' is required."}), 400
+
+    try:
+        latitude  = float(latitude)  if latitude  is not None else None
+        longitude = float(longitude) if longitude is not None else None
+    except (ValueError, TypeError):
+        latitude = longitude = None
+
+    # ── 1. Run routing engine ────────────────────────────────────────────
+    routing_result = routing_engine.route_issue(issue_type, zone_id)
+    department         = routing_result["department"]
+    routed_officer_str = routing_result["officer_id"]
+    resolved_zone      = routing_result["zone_id"]
+
+    # ── 2. Resolve officer FK in DB ──────────────────────────────────────
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    cur.execute("SELECT id FROM officers WHERE officer_id = ?", (routed_officer_str,))
+    officer_row = cur.fetchone()
+    assigned_officer_fk = officer_row[0] if officer_row else 1
+
+    # ── 3. Generate report number & metadata ─────────────────────────────
+    cur.execute("SELECT COUNT(*) FROM reports")
+    report_count  = cur.fetchone()[0] + 1
+    report_number = f"REP-2026-{report_count:04d}"
+    now_iso       = datetime.now().isoformat()
+
+    # Reverse-geocode if coordinates provided
+    addr, landmark = reverse_geocode(latitude, longitude)
+
+    final_description = description or f"Civic issue reported via API: {issue_type}."
+
+    # ── 4. Insert report stub into DB ────────────────────────────────────
+    cur.execute("""
+        INSERT INTO reports
+        (image_path, summary, severity, latitude, longitude, created_at,
+         type, department, avg_confidence, latency_ms, class_confidences,
+         report_number, citizen_id, issue_type, description, status,
+         address, landmark, zone_id, ward_id, assigned_officer_id, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?)
+    """, (
+        "",                          # image_path — no image for API-only report
+        json.dumps({issue_type: 1}), # summary
+        "Pending Assessment",        # severity — not yet scored
+        latitude,
+        longitude,
+        now_iso,
+        "api",                       # type
+        department,
+        None,                        # avg_confidence
+        None,                        # latency_ms
+        json.dumps({}),              # class_confidences
+        report_number,
+        session.get("citizen_id", "CIT-API"),
+        issue_type,
+        final_description,
+        "Pending",
+        addr,
+        landmark or "Civic Area",
+        resolved_zone,
+        "Ward-12",
+        assigned_officer_fk,
+        now_iso
+    ))
+    new_report_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+
+    system_logger.info(
+        f"API route-issue | Report: {report_number} | "
+        f"Issue: {issue_type} | Dept: {department} | "
+        f"Officer: {routed_officer_str} | Zone: {resolved_zone}"
+    )
+
+    # ── 5. Return full assigned report object ────────────────────────────
+    return jsonify({
+        "status":       "success",
+        "report_id":    new_report_id,
+        "report_number": report_number,
+        "issue_type":   issue_type,
+        "department":   department,
+        "assigned_officer": {
+            "officer_id":   routing_result["officer_id"],
+            "name":         routing_result["officer_name"],
+            "designation":  routing_result["officer_designation"],
+        },
+        "zone_id":              resolved_zone,
+        "status":               "Pending",
+        "timestamp":            now_iso,
+        "address":              addr,
+        "description":          final_description,
+        "is_fallback_routing":  routing_result["is_fallback"],
+    }), 201
+
+
+# =====================================================
 # NAGRIK-SEVA AI ADMIN / OFFICER DASHBOARD ROUTES & APIs
 # =====================================================
 
@@ -1048,6 +1556,8 @@ def dashboard_view():
     """
     Nagrik-Seva AI Admin / Officer Dashboard Page.
     """
+    if not session.get('officer_logged_in'):
+        return redirect(url_for('index'))
     return render_template("dashboard.html")
 
 @app.route("/officer-profile")
@@ -1055,6 +1565,8 @@ def officer_profile_view():
     """
     Dedicated Officer Profile Page.
     """
+    if not session.get('officer_logged_in'):
+        return redirect(url_for('index'))
     return render_template("dashboard.html", active_tab="profile")
 
 @app.route("/api/officer/profile", methods=["GET"])
@@ -1066,11 +1578,20 @@ def api_officer_profile():
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT id, name, email, phone, profile_image_url, officer_id, designation, department, zone_id, ward_id, role, status, created_at, updated_at, last_login_at
-        FROM officers
-        ORDER BY id ASC LIMIT 1
-    """)
+    officer_id = session.get('officer_id')
+    if officer_id:
+        cur.execute("""
+            SELECT id, name, email, phone, profile_image_url, officer_id, designation, department, zone_id, ward_id, role, status, created_at, updated_at, last_login_at
+            FROM officers
+            WHERE officer_id = ?
+        """, (officer_id,))
+    else:
+        # Fallback to the first officer for compatibility
+        cur.execute("""
+            SELECT id, name, email, phone, profile_image_url, officer_id, designation, department, zone_id, ward_id, role, status, created_at, updated_at, last_login_at
+            FROM officers
+            ORDER BY id ASC LIMIT 1
+        """)
     officer = cur.fetchone()
     conn.close()
 
