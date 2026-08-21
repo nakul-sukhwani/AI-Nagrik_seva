@@ -1,0 +1,25 @@
+# Virtual environments & dependencies
+venv/
+.venv/
+env/
+node_modules/
+__pycache__/
+*.pyc
+
+# Local databases, models & heavy test assets
+*.pt
+*.onnx
+reports.db
+*.sqlite
+*.sqlite3
+
+# Logs & temp files
+logs/
+*.log
+scratch/
+.system_generated/
+.agents/
+.gemini/
+
+# Client / frontend directory (if deploying backend separately)
+# client/
