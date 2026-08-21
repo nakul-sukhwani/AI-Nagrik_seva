@@ -30,9 +30,15 @@ import random
 import supabase_client
 # Override sqlite3.connect to automatically route to Supabase when active
 sqlite3.connect = supabase_client.get_db_connection
-import io
+
+# =====================================================
+# NVIDIA NIM AI INTEGRATION
+# =====================================================
+import nvidia_client
+
 import base64
 import csv
+import io
 import cv2
 import numpy as np
 import logging
@@ -2530,6 +2536,25 @@ def api_citizen_report():
         ai_severity = "Manual Review Required"
         department = "Roads Department" if "road" in category.lower() or "pothole" in category.lower() else "Department of Environment" if "garbage" in category.lower() else "Civic Grievance Cell"
 
+    # ── NVIDIA NIM AI Enrichment ──────────────────────────────────────────────
+    ai_enrichment = {}
+    if nvidia_client.IS_NVIDIA_ACTIVE:
+        try:
+            ai_enrichment = nvidia_client.enrich_citizen_complaint(
+                category=category,
+                description=description,
+                ai_detected=ai_detected,
+                ai_confidence=ai_confidence,
+                landmark=landmark or "",
+                latitude=latitude,
+                longitude=longitude,
+            )
+            # Override department from AI if it provides one
+            if ai_enrichment.get("recommended_department"):
+                department = ai_enrichment["recommended_department"]
+        except Exception as e:
+            error_logger.error(f"NVIDIA NIM enrichment failed: {e}")
+
     # Save into SQLite database
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -2604,7 +2629,15 @@ def api_citizen_report():
             "severity": ai_severity,
             "confidence": ai_confidence
         },
-        "message": "Complaint successfully registered on Samaj Sewa platform."
+        "ai_enrichment": {
+            "priority": ai_enrichment.get("priority", "P2 - Normal"),
+            "estimated_resolution_days": ai_enrichment.get("estimated_resolution_days", 7),
+            "citizen_message": ai_enrichment.get("citizen_message", "Your complaint has been registered. Thank you!"),
+            "tags": ai_enrichment.get("tags", []),
+            "escalation_required": ai_enrichment.get("escalation_required", False),
+            "officer_summary": ai_enrichment.get("officer_summary", ""),
+        },
+        "message": ai_enrichment.get("citizen_message") or "Complaint successfully registered on Samaj Sewa platform."
     })
 
 
@@ -2890,6 +2923,110 @@ def api_worker_submit_repair(task_id):
     conn.close()
 
     return jsonify({"status": "success", "message": "Repair report submitted successfully!"})
+
+# =====================================================
+# NVIDIA NIM AI ENDPOINTS
+# =====================================================
+
+@app.route("/api/ai/verify-repair/<int:task_id>", methods=["POST"])
+def api_ai_verify_repair(task_id):
+    """
+    AI-powered Before/After repair verification.
+    Worker calls this after submitting a repair photo.
+    Returns: verification_status, quality_score, officer_recommendation, approved
+    """
+    if not nvidia_client.IS_NVIDIA_ACTIVE:
+        return jsonify({"error": "NVIDIA NIM AI is not configured"}), 503
+
+    data = request.get_json(silent=True) or {}
+    before_desc = data.get("before_description", "Civic infrastructure issue reported by citizen")
+    after_desc = data.get("after_description", "Worker submitted after-repair photo")
+    worker_notes = data.get("worker_notes", "")
+    category = data.get("category", "Road Repair")
+
+    try:
+        result = nvidia_client.verify_repair_completion(
+            before_description=before_desc,
+            after_description=after_desc,
+            worker_notes=worker_notes,
+            category=category,
+        )
+
+        # Update report status if approved
+        if result.get("approved"):
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute("UPDATE reports SET status = 'AI_APPROVED' WHERE id = ?", (task_id,))
+            conn.commit()
+            conn.close()
+
+        return jsonify({"status": "success", "task_id": task_id, "verification": result})
+    except Exception as e:
+        error_logger.error(f"AI verify-repair error: {e}")
+        return jsonify({"error": "AI verification failed", "detail": str(e)}), 500
+
+
+@app.route("/api/ai/admin-summary", methods=["GET"])
+def api_ai_admin_summary():
+    """
+    Generates a daily AI executive summary for the Admin Officer.
+    Returns: headline, executive_summary, key_highlights, bottlenecks, recommendations, alert_level
+    """
+    if not nvidia_client.IS_NVIDIA_ACTIVE:
+        return jsonify({"error": "NVIDIA NIM AI is not configured"}), 503
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT issue_type, department, status, severity, created_at
+            FROM reports ORDER BY created_at DESC LIMIT 100
+        """)
+        rows = cur.fetchall()
+        conn.close()
+
+        reports_list = []
+        for row in rows:
+            try:
+                reports_list.append({
+                    "issue_type": row[0] if isinstance(row, (list, tuple)) else row["issue_type"],
+                    "department": row[1] if isinstance(row, (list, tuple)) else row["department"],
+                    "status": row[2] if isinstance(row, (list, tuple)) else row["status"],
+                    "severity": row[3] if isinstance(row, (list, tuple)) else row["severity"],
+                    "created_at": str(row[4] if isinstance(row, (list, tuple)) else row["created_at"]),
+                })
+            except Exception:
+                try:
+                    reports_list.append({
+                        "issue_type": row["issue_type"],
+                        "department": row["department"],
+                        "status": row["status"],
+                        "severity": row["severity"],
+                        "created_at": str(row["created_at"]),
+                    })
+                except Exception:
+                    pass
+
+        summary = nvidia_client.generate_admin_summary(reports_list)
+        return jsonify({"status": "success", "summary": summary})
+    except Exception as e:
+        error_logger.error(f"AI admin-summary error: {e}")
+        return jsonify({"error": "AI summary generation failed", "detail": str(e)}), 500
+
+
+@app.route("/api/ai/status", methods=["GET"])
+def api_ai_status():
+    """Returns status of NVIDIA NIM AI integration."""
+    return jsonify({
+        "nvidia_nim_active": nvidia_client.IS_NVIDIA_ACTIVE,
+        "model": nvidia_client.NIM_MODEL,
+        "features": [
+            "Smart complaint enrichment (priority, department, citizen message)",
+            "Before/After repair verification",
+            "Daily admin executive summary"
+        ]
+    })
+
 
 # =====================================================
 # APPLICATION ENTRY POINT
