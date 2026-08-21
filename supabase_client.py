@@ -44,9 +44,7 @@ else:
 # Supports index access: row[0], and name-based access: row['id'].
 # =====================================================
 
-from collections.abc import Mapping
-
-class RowWrapper(Mapping):
+class RowWrapper:
     def __init__(self, data, description):
         self._data = data  # tuple of values
         # Map column name to index
@@ -57,7 +55,7 @@ class RowWrapper(Mapping):
         return self._keys
 
     def values(self):
-        return [self[k] for k in self._keys]
+        return list(self._data)
 
     def items(self):
         return [(k, self[k]) for k in self._keys]
@@ -78,10 +76,10 @@ class RowWrapper(Mapping):
             return default
 
     def __len__(self):
-        return len(self._keys)
+        return len(self._data)
 
     def __iter__(self):
-        return iter(self._keys)
+        return iter(self._data)
 
     def __repr__(self):
         d = {k: self[k] for k in self._keys}

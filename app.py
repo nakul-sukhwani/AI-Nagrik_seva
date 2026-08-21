@@ -747,21 +747,41 @@ def api_login_officer():
         cur.execute("""
             SELECT name, password, email, department 
             FROM officers 
-            WHERE officer_id = ?
+            WHERE LOWER(officer_id) = LOWER(?)
         """, (officer_id,))
         row = cur.fetchone()
         
         if not row:
             return jsonify({"error": "Invalid Officer ID"}), 401
             
-        name, hashed_pw, email, dept = row
+        name = row['name']
+        stored_pw = str(row['password']).strip()
+        email = row['email'] if 'email' in row.keys() else ''
+        dept = row['department'] if 'department' in row.keys() else ''
         
-        if not hashed_pw or not check_password_hash(hashed_pw, password):
+        # 1. Plain-text comparison (for seeded demo accounts)
+        is_valid = (stored_pw == password)
+        
+        # 2. Werkzeug hash comparison (for hashed accounts)
+        if not is_valid and (stored_pw.startswith('scrypt:') or stored_pw.startswith('pbkdf2:')):
+            try:
+                is_valid = check_password_hash(stored_pw, password)
+            except Exception as e:
+                print("check_password_hash exception:", e)
+                is_valid = False
+
+        print(f"DEBUG officer login: officer_id={officer_id}, stored_pw={stored_pw[:20]}..., input_pw={password}, is_valid={is_valid}")
+
+        if not is_valid:
             return jsonify({"error": "Invalid password"}), 401
 
         # Update last login time
-        cur.execute("UPDATE officers SET last_login_at = datetime('now') WHERE officer_id = ?", (officer_id,))
-        conn.commit()
+        now_iso = datetime.now().isoformat()
+        try:
+            cur.execute("UPDATE officers SET last_login_at = ? WHERE LOWER(officer_id) = LOWER(?)", (now_iso, officer_id))
+            conn.commit()
+        except Exception as e:
+            error_logger.warning(f"Failed to update officer last_login_at: {e}")
 
         # Set session
         session.clear()
@@ -2329,7 +2349,7 @@ def worker_task_detail(task_id):
 
         conn.close()
 
-        td = dict(task)
+        td = dict(task.items()) if hasattr(task, 'items') else dict(task)
         damage_types = []
         if td.get('summary'):
             try:
@@ -2340,7 +2360,8 @@ def worker_task_detail(task_id):
                 damage_types.append("Civic Issue")
         td['damage_label'] = ", ".join(damage_types) if damage_types else "Civic Issue"
 
-        return render_template("worker_task_detail.html", worker=worker, task=td, repair_report=dict(repair_report) if repair_report else None, all_workers=all_workers)
+        rep_dict = dict(repair_report.items()) if (repair_report and hasattr(repair_report, 'items')) else (dict(repair_report) if repair_report else None)
+        return render_template("worker_task_detail.html", worker=worker, task=td, repair_report=rep_dict, all_workers=all_workers)
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
