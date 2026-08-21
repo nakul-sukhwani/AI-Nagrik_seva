@@ -21,7 +21,7 @@ const portals = [
     bg: 'from-orange-900/40 to-orange-950/60',
     border: 'border-orange-800/50',
     iconBg: 'bg-orange-900/60',
-    href: '/command-center',
+    href: 'http://localhost:5000/citizen',
   },
   {
     key: 'worker',

@@ -1,433 +1,183 @@
-<!DOCTYPE html>
-<html lang="en" class="h-full bg-slate-950">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart City — Field Worker Portal</title>
-    <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: { sans: ['Outfit', 'sans-serif'] },
-                }
-            }
-        }
-    </script>
-    <!-- Leaflet Map -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <style>
-        body {
-            background: radial-gradient(circle at top right, #090d16, #030712);
-        }
-        .glass-panel {
-            background: rgba(17, 24, 39, 0.7);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-        }
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
-    </style>
-</head>
-<body class="h-full text-slate-100 flex flex-col font-sans">
+{% extends "worker_base.html" %}
 
-    <!-- NAVBAR -->
-    <nav class="glass-panel sticky top-0 z-40 border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-            <span class="text-3xl">🛠️</span>
-            <div>
-                <h1 class="font-bold text-white text-lg leading-tight tracking-wide">Field Operations Portal</h1>
-                <p class="text-[10px] text-amber-400 tracking-wider uppercase font-semibold">Smart City Resolve System</p>
-            </div>
+{% block title %}Worker Dashboard — Nagrik-Seva{% endblock %}
+
+{% block content %}
+<!-- Welcome & Worker Header Banner -->
+<div class="card border-0 shadow-sm rounded-4 mb-4 text-white overflow-hidden" style="background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);">
+  <div class="card-body p-4">
+    <div class="row align-items-center">
+      <div class="col-auto">
+        {% if worker.profile_image %}
+          <img src="{{ worker.profile_image }}" alt="{{ worker.name }}" class="rounded-circle border border-3 border-warning" style="width: 70px; height: 70px; object-fit: cover;">
+        {% else %}
+          <div class="rounded-circle bg-warning text-dark d-flex align-items-center justify-content-center fw-bold border border-3 border-white" style="width: 70px; height: 70px; font-size: 1.8rem;">
+            {{ worker.name[0] }}
+          </div>
+        {% endif %}
+      </div>
+      <div class="col">
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+          <h2 class="fw-bold mb-0 me-2">{{ worker.name }}</h2>
+          <span class="badge bg-warning text-dark fw-bold rounded-pill px-3 py-1">{{ worker.worker_id }}</span>
+          <span class="badge bg-primary rounded-pill px-3 py-1">{{ worker.designation }}</span>
         </div>
-
-        <div class="flex items-center gap-4">
-            <div class="text-right hidden md:block">
-                <div id="worker-profile-name" class="text-sm font-semibold text-white">--</div>
-                <div id="worker-profile-dept" class="text-xs text-slate-400">--</div>
-            </div>
-            <button onclick="handleLogout()" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-rose-300 bg-rose-950/40 hover:bg-rose-900/40 border border-rose-800/40 transition-all">
-                Logout
-            </button>
+        <div class="text-white-50 small d-flex flex-wrap gap-3">
+          <span><i class="fas fa-building text-warning me-1"></i> {{ worker.department }}</span>
+          <span><i class="fas fa-map-marker-alt text-warning me-1"></i> {{ worker.ward }}</span>
+          <span><i class="fas fa-phone text-warning me-1"></i> {{ worker.contact }}</span>
         </div>
-    </nav>
-
-    <!-- MAIN BODY -->
-    <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6 overflow-y-auto custom-scrollbar">
-        
-        <!-- Welcome Card -->
-        <div class="glass-panel rounded-xl p-5 md:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-                <h2 class="text-xl md:text-2xl font-bold text-white">Hello, <span id="welcome-name" class="text-amber-400">Worker</span>!</h2>
-                <p class="text-slate-400 text-sm mt-1">Here are the civic issues assigned to the <span id="assigned-dept" class="font-semibold text-slate-200">--</span>.</p>
-            </div>
-            <div class="flex items-center gap-3">
-                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span class="text-xs text-slate-300 font-semibold uppercase tracking-wider">Operational Mode</span>
-            </div>
-        </div>
-
-        <!-- STATS GRID -->
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <!-- Stat 1 -->
-            <div class="glass-panel rounded-xl p-4 flex flex-col justify-between">
-                <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">TOTAL TASKS</span>
-                <span id="stat-total" class="text-3xl font-extrabold text-white mt-2">0</span>
-            </div>
-            <!-- Stat 2 -->
-            <div class="glass-panel rounded-xl p-4 flex flex-col justify-between border-l-4 border-l-red-500/80">
-                <span class="text-xs font-semibold text-red-400 uppercase tracking-wider">PENDING</span>
-                <span id="stat-pending" class="text-3xl font-extrabold text-white mt-2">0</span>
-            </div>
-            <!-- Stat 3 -->
-            <div class="glass-panel rounded-xl p-4 flex flex-col justify-between border-l-4 border-l-indigo-500/80">
-                <span class="text-xs font-semibold text-indigo-400 uppercase tracking-wider">IN PROGRESS</span>
-                <span id="stat-inprogress" class="text-3xl font-extrabold text-white mt-2">0</span>
-            </div>
-            <!-- Stat 4 -->
-            <div class="glass-panel rounded-xl p-4 flex flex-col justify-between border-l-4 border-l-emerald-500/80">
-                <span class="text-xs font-semibold text-emerald-400 uppercase tracking-wider">RESOLVED</span>
-                <span id="stat-resolved" class="text-3xl font-extrabold text-white mt-2">0</span>
-            </div>
-        </div>
-
-        <!-- TASKS LISTING -->
-        <div class="glass-panel rounded-xl p-5 md:p-6">
-            <h3 class="font-bold text-white text-lg mb-4 flex items-center gap-2">
-                📂 Active Complaints & Remediation
-            </h3>
-
-            <!-- Loading Spinner -->
-            <div id="tasks-loading" class="flex justify-center items-center py-12">
-                <svg class="animate-spin h-8 w-8 text-amber-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-            </div>
-
-            <!-- Empty State -->
-            <div id="tasks-empty" class="hidden text-center py-12 text-slate-500">
-                <span class="text-4xl block mb-2">🏖️</span>
-                No complaints found in your department. All clean!
-            </div>
-
-            <!-- Tasks Table (hidden on mobile, shown on large screens) -->
-            <div class="hidden lg:block overflow-x-auto">
-                <table class="w-full text-left border-collapse">
-                    <thead>
-                        <tr class="border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                            <th class="py-3 px-4">Report ID</th>
-                            <th class="py-3 px-4">Issue Type</th>
-                            <th class="py-3 px-4">Severity</th>
-                            <th class="py-3 px-4">Status</th>
-                            <th class="py-3 px-4">Address</th>
-                            <th class="py-3 px-4">Date</th>
-                            <th class="py-3 px-4 text-right">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tasks-table-body" class="divide-y divide-slate-800/60 text-sm">
-                        <!-- Populated Dynamically -->
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Mobile Tasks Cards Grid -->
-            <div id="tasks-cards-grid" class="lg:hidden grid grid-cols-1 gap-4">
-                <!-- Populated Dynamically -->
-            </div>
-        </div>
-    </main>
-
-    <!-- DETAIL MODAL -->
-    <div id="detail-modal" class="hidden fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-50 overflow-y-auto">
-        <div class="glass-panel border-slate-700/80 bg-slate-900/95 max-w-3xl w-full rounded-2xl p-5 md:p-6 shadow-2xl flex flex-col max-h-[90vh]">
-            <!-- Header -->
-            <div class="flex justify-between items-start border-b border-slate-800 pb-4 mb-4">
-                <div>
-                    <h3 class="text-lg font-bold text-white flex items-center gap-2">
-                        Inspect Ticket: <span id="modal-report-number" class="text-blue-400">REP-2026-000</span>
-                    </h3>
-                    <p class="text-xs text-slate-400 mt-1" id="modal-issue-type">Road pothole complaint</p>
-                </div>
-                <button onclick="closeModal()" class="text-slate-400 hover:text-white text-2xl font-bold p-1 leading-none">&times;</button>
-            </div>
-
-            <!-- Scrollable Body -->
-            <div class="flex-1 overflow-y-auto space-y-5 pr-1 custom-scrollbar">
-                <!-- Image & Map row -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <!-- Image -->
-                    <div class="rounded-xl overflow-hidden border border-slate-800 bg-black/40 flex items-center justify-center h-48 md:h-64">
-                        <img id="modal-image" src="" alt="Complaint image" class="max-h-full max-w-full object-contain">
-                    </div>
-                    <!-- Map -->
-                    <div class="rounded-xl overflow-hidden border border-slate-800 h-48 md:h-64 relative bg-black/40">
-                        <div id="modal-map" class="w-full h-full z-10"></div>
-                    </div>
-                </div>
-
-                <!-- Info Grid -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm bg-slate-950/60 p-4 rounded-xl border border-slate-800">
-                    <div>
-                        <span class="text-xs text-slate-500 uppercase font-semibold">Report Severity</span>
-                        <div class="mt-1"><span id="modal-severity" class="px-2.5 py-0.5 rounded text-xs font-bold bg-rose-950 text-rose-300">High</span></div>
-                    </div>
-                    <div>
-                        <span class="text-xs text-slate-500 uppercase font-semibold">Current Ticket Status</span>
-                        <div class="mt-1"><span id="modal-status" class="px-2.5 py-0.5 rounded text-xs font-bold bg-amber-950 text-amber-300">Pending</span></div>
-                    </div>
-                    <div class="md:col-span-2">
-                        <span class="text-xs text-slate-500 uppercase font-semibold">Report Address</span>
-                        <p id="modal-address" class="text-slate-300 mt-1">Calculating address details...</p>
-                        <p id="modal-landmark" class="text-xs text-slate-400 mt-1">Landmark: None</p>
-                    </div>
-                    <div class="md:col-span-2">
-                        <span class="text-xs text-slate-500 uppercase font-semibold">AI Detection Details</span>
-                        <p id="modal-description" class="text-slate-300 mt-1">Automated scan detected anomalies.</p>
-                    </div>
-                </div>
-
-                <!-- Update Status Box -->
-                <div class="p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 space-y-3">
-                    <h4 class="font-semibold text-white text-sm">Update Field Remediation Status:</h4>
-                    <div class="flex flex-wrap gap-3">
-                        <button onclick="updateStatus('Pending')" class="flex-1 py-2 px-3 text-xs font-semibold rounded bg-red-950 hover:bg-red-900 border border-red-800 text-red-300 transition-colors">
-                            Set Pending ⏳
-                        </button>
-                        <button onclick="updateStatus('In Progress')" class="flex-1 py-2 px-3 text-xs font-semibold rounded bg-indigo-950 hover:bg-indigo-900 border border-indigo-800 text-indigo-300 transition-colors">
-                            Set In Progress 🛠️
-                        </button>
-                        <button onclick="updateStatus('Resolved')" class="flex-1 py-2 px-3 text-xs font-semibold rounded bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 transition-colors">
-                            Mark Resolved ✔
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
+      </div>
     </div>
+  </div>
+</div>
 
-    <script>
-        let reportsData = [];
-        let selectedReportId = null;
-        let mapInstance = null;
-        let mapMarker = null;
+<!-- Quick Statistics Summary Overview -->
+{% if stats %}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="worker-stat-card">
+      <div class="worker-stat-icon icon-active">
+        <i class="fas fa-exclamation-circle"></i>
+      </div>
+      <div>
+        <div class="worker-stat-number">{{ stats.active_count }}</div>
+        <div class="worker-stat-label">Active Tasks</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="worker-stat-card">
+      <div class="worker-stat-icon icon-in-progress">
+        <i class="fas fa-spinner fa-spin"></i>
+      </div>
+      <div>
+        <div class="worker-stat-number">{{ stats.in_progress_count }}</div>
+        <div class="worker-stat-label">In Progress</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="worker-stat-card">
+      <div class="worker-stat-icon icon-completed">
+        <i class="fas fa-check-circle"></i>
+      </div>
+      <div>
+        <div class="worker-stat-number">{{ stats.completed_count }}</div>
+        <div class="worker-stat-label">Submitted</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="worker-stat-card">
+      <div class="worker-stat-icon icon-pending">
+        <i class="fas fa-clock"></i>
+      </div>
+      <div>
+        <div class="worker-stat-number">{{ stats.pending_count }}</div>
+        <div class="worker-stat-label">New Assigned</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
-        document.addEventListener("DOMContentLoaded", () => {
-            loadTasks();
-        });
+<!-- Tasks Filter Tabs & Heading -->
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3 gap-2">
+  <h4 class="fw-bold mb-0 text-dark">
+    <i class="fas fa-clipboard-list text-primary me-2"></i> Assigned Field Issues
+  </h4>
 
-        async function loadTasks() {
-            document.getElementById('tasks-loading').classList.remove('hidden');
-            document.getElementById('tasks-empty').classList.add('hidden');
+  <div class="btn-group btn-group-sm rounded-pill shadow-sm bg-white p-1 border">
+    <a href="{{ url_for('worker_tasks', status='all') }}" class="btn btn-outline-primary rounded-pill px-3 {% if not current_filter or current_filter == 'all' %}active{% endif %}">
+      All Tasks
+    </a>
+    <a href="{{ url_for('worker_tasks', status='assigned') }}" class="btn btn-outline-primary rounded-pill px-3 {% if current_filter == 'assigned' %}active{% endif %}">
+      Assigned
+    </a>
+    <a href="{{ url_for('worker_tasks', status='in_progress') }}" class="btn btn-outline-primary rounded-pill px-3 {% if current_filter == 'in_progress' %}active{% endif %}">
+      In Progress
+    </a>
+    <a href="{{ url_for('worker_tasks', status='submitted') }}" class="btn btn-outline-primary rounded-pill px-3 {% if current_filter in ['submitted', 'completed'] %}active{% endif %}">
+      Submitted
+    </a>
+  </div>
+</div>
 
-            try {
-                const res = await fetch('/api/worker/reports');
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Failed to fetch tasks');
+<!-- Task Cards Grid -->
+{% if tasks %}
+<div class="row g-3">
+  {% for task in tasks %}
+  <div class="col-12 col-md-6 col-lg-4">
+    <div class="task-card">
+      <div class="task-card-header">
+        <span class="fw-bold text-dark fs-7">
+          <i class="fas fa-hashtag text-secondary me-1"></i>Issue #{{ task.id }}
+        </span>
+        <span class="badge-status badge-{{ task.status.lower() if task.status else 'assigned' }}">
+          {% if task.status == 'IN_PROGRESS' %}
+            <i class="fas fa-spinner fa-spin"></i> In Progress
+          {% elif task.status == 'PENDING_VERIFICATION' %}
+            <i class="fas fa-clock"></i> Submitted
+          {% elif task.status == 'RESOLVED' or task.status == 'COMPLETED' %}
+            <i class="fas fa-check"></i> Resolved
+          {% else %}
+            <i class="fas fa-plus-circle"></i> Assigned
+          {% endif %}
+        </span>
+      </div>
 
-                reportsData = data.reports || [];
-                
-                // Profile header
-                document.getElementById('worker-profile-name').innerText = data.worker_name || 'Worker';
-                document.getElementById('worker-profile-dept').innerText = data.department || '--';
-                document.getElementById('welcome-name').innerText = data.worker_name || 'Worker';
-                document.getElementById('assigned-dept').innerText = data.department || '--';
+      <div class="task-card-body">
+        {% if task.image_path %}
+          <img src="{{ task.image_path if task.image_path.startswith('/') else '/' + task.image_path }}" alt="Issue Image" class="task-thumb mb-3" onerror="this.src='https://via.placeholder.com/400x200?text=Issue+Photo';">
+        {% endif %}
 
-                // Render metrics
-                calculateMetrics(reportsData);
+        <h5 class="fw-bold text-dark mb-2">{{ task.damage_label }}</h5>
+        
+        <div class="small text-muted mb-2">
+          <div class="d-flex align-items-center mb-1">
+            <i class="fas fa-layer-group text-primary me-2 width-20"></i>
+            <span class="fw-semibold">Department:</span> &nbsp;{{ task.department or worker.department }}
+          </div>
+          <div class="d-flex align-items-center mb-1">
+            <i class="fas fa-fire text-danger me-2 width-20"></i>
+            <span class="fw-semibold">Severity:</span> &nbsp;
+            <span class="badge bg-{{ 'danger' if 'High' in task.severity else ('warning text-dark' if 'Medium' in task.severity else 'info text-dark') }} rounded-pill">
+              {{ task.severity or 'Medium' }}
+            </span>
+          </div>
+          <div class="d-flex align-items-center mb-1">
+            <i class="fas fa-map-marker-alt text-warning me-2 width-20"></i>
+            <span class="fw-semibold">Location:</span> &nbsp;{{ worker.ward }}
+          </div>
+          <div class="d-flex align-items-center">
+            <i class="fas fa-calendar-alt text-secondary me-2 width-20"></i>
+            <span class="fw-semibold">Reported:</span> &nbsp;{{ task.created_at[:10] if task.created_at else 'Recent' }}
+          </div>
+        </div>
+      </div>
 
-                // Render tables
-                renderTasksTable(reportsData);
-                renderTasksCards(reportsData);
-
-                document.getElementById('tasks-loading').classList.add('hidden');
-                if (reportsData.length === 0) {
-                    document.getElementById('tasks-empty').classList.remove('hidden');
-                }
-            } catch (err) {
-                console.error(err);
-                alert("Error loading operational tasks: " + err.message);
-                document.getElementById('tasks-loading').classList.add('hidden');
-            }
-        }
-
-        function calculateMetrics(reports) {
-            const total = reports.length;
-            const pending = reports.filter(r => (r.status || 'Pending') === 'Pending').length;
-            const inprogress = reports.filter(r => r.status === 'In Progress').length;
-            const resolved = reports.filter(r => r.status === 'Resolved').length;
-
-            document.getElementById('stat-total').innerText = total;
-            document.getElementById('stat-pending').innerText = pending;
-            document.getElementById('stat-inprogress').innerText = inprogress;
-            document.getElementById('stat-resolved').innerText = resolved;
-        }
-
-        function renderTasksTable(reports) {
-            const tbody = document.getElementById('tasks-table-body');
-            tbody.innerHTML = '';
-
-            reports.forEach(r => {
-                const tr = document.createElement('tr');
-                tr.className = "hover:bg-slate-900/40 border-b border-slate-900/60 transition-colors";
-                
-                const imgPath = r.image_path.startsWith('/') ? r.image_path : '/' + r.image_path;
-                const statusBadge = getStatusBadge(r.status);
-                const severityBadge = getSeverityBadge(r.severity);
-                const address = r.address ? r.address : (r.latitude ? `Lat: ${r.latitude.toFixed(3)}, Lng: ${r.longitude.toFixed(3)}` : 'Location unavailable');
-                const date = r.created_at ? r.created_at.split('T')[0] : '';
-
-                tr.innerHTML = `
-                    <td class="py-3.5 px-4 font-bold text-blue-400">
-                        <div class="flex items-center gap-3">
-                            <img src="${imgPath}" class="w-9 h-9 rounded object-cover border border-slate-800">
-                            <span>${r.report_number || ('REP-' + r.id)}</span>
-                        </div>
-                    </td>
-                    <td class="py-3.5 px-4 font-semibold text-slate-200">${r.issue_type || 'Civic Issue'}</td>
-                    <td class="py-3.5 px-4">${severityBadge}</td>
-                    <td class="py-3.5 px-4">${statusBadge}</td>
-                    <td class="py-3.5 px-4 text-xs text-slate-400 max-w-xs truncate">${address}</td>
-                    <td class="py-3.5 px-4 text-xs text-slate-400">${date}</td>
-                    <td class="py-3.5 px-4 text-right">
-                        <button onclick="inspectTask(${r.id})" class="px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-all shadow-sm shadow-amber-900/20">
-                            Inspect & Resolve
-                        </button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-
-        function renderTasksCards(reports) {
-            const container = document.getElementById('tasks-cards-grid');
-            container.innerHTML = '';
-
-            reports.forEach(r => {
-                const card = document.createElement('div');
-                card.className = "glass-panel rounded-xl p-4 space-y-3";
-                
-                const imgPath = r.image_path.startsWith('/') ? r.image_path : '/' + r.image_path;
-                const statusBadge = getStatusBadge(r.status);
-                const severityBadge = getSeverityBadge(r.severity);
-                const address = r.address ? r.address : (r.latitude ? `Lat: ${r.latitude.toFixed(3)}, Lng: ${r.longitude.toFixed(3)}` : 'Location unavailable');
-                const date = r.created_at ? r.created_at.split(' ')[0] : '';
-
-                card.innerHTML = `
-                    <div class="flex items-center gap-3">
-                        <img src="${imgPath}" class="w-12 h-12 rounded object-cover border border-slate-800">
-                        <div class="flex-1 min-w-0">
-                            <div class="flex items-center justify-between">
-                                <span class="font-bold text-blue-400 text-sm">${r.report_number || ('REP-' + r.id)}</span>
-                                <span class="text-[10px] text-slate-500">${date}</span>
-                            </div>
-                            <h4 class="font-semibold text-white text-sm truncate">${r.issue_type || 'Civic Issue'}</h4>
-                        </div>
-                    </div>
-                    <div class="flex items-center justify-between text-xs pt-1 border-t border-slate-800">
-                        <div class="flex gap-2">
-                            ${severityBadge}
-                            ${statusBadge}
-                        </div>
-                        <button onclick="inspectTask(${r.id})" class="px-3 py-1 bg-amber-600 hover:bg-amber-700 rounded text-xs font-bold text-white">
-                            Resolve
-                        </button>
-                    </div>
-                `;
-                container.appendChild(card);
-            });
-        }
-
-        function getStatusBadge(status) {
-            status = status || 'Pending';
-            if (status === 'Resolved') return `<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800/30">Resolved</span>`;
-            if (status === 'In Progress') return `<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-indigo-950 text-indigo-300 border border-indigo-800/30">In Progress</span>`;
-            return `<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-red-950 text-red-300 border border-red-800/30">Pending</span>`;
-        }
-
-        function getSeverityBadge(severity) {
-            severity = severity || 'Medium';
-            if (severity.includes('High')) return `<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-950 text-rose-300 border border-rose-800/30">${severity}</span>`;
-            if (severity.includes('Low')) return `<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-900 text-slate-400 border border-slate-800/30">${severity}</span>`;
-            return `<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-950 text-amber-300 border border-amber-800/30">${severity}</span>`;
-        }
-
-        function inspectTask(id) {
-            selectedReportId = id;
-            const r = reportsData.find(x => x.id === id);
-            if (!r) return;
-
-            document.getElementById('modal-report-number').innerText = r.report_number || ('REP-' + r.id);
-            document.getElementById('modal-issue-type').innerText = r.issue_type || 'Civic Issue';
-            document.getElementById('modal-severity').innerHTML = getSeverityBadge(r.severity);
-            document.getElementById('modal-status').innerHTML = getStatusBadge(r.status);
-            document.getElementById('modal-address').innerText = r.address || 'Address coordinates unavailable';
-            document.getElementById('modal-landmark').innerText = `Landmark: ${r.landmark || 'None'}`;
-            document.getElementById('modal-description').innerText = r.description || 'Automated scan detected anomalies.';
-            
-            const imgPath = r.image_path.startsWith('/') ? r.image_path : '/' + r.image_path;
-            document.getElementById('modal-image').src = imgPath;
-
-            // Show Modal
-            document.getElementById('detail-modal').classList.remove('hidden');
-
-            // Render Map
-            setTimeout(() => {
-                if (r.latitude && r.longitude) {
-                    if (!mapInstance) {
-                        mapInstance = L.map('modal-map').setView([r.latitude, r.longitude], 15);
-                        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapInstance);
-                    } else {
-                        mapInstance.setView([r.latitude, r.longitude], 15);
-                    }
-
-                    if (mapMarker) {
-                        mapMarker.setLatLng([r.latitude, r.longitude]);
-                    } else {
-                        mapMarker = L.marker([r.latitude, r.longitude]).addTo(mapInstance);
-                    }
-                } else {
-                    document.getElementById('modal-map').innerHTML = '<div class="h-full flex items-center justify-center text-xs text-slate-500">No Location Coordinates</div>';
-                }
-            }, 100);
-        }
-
-        function closeModal() {
-            document.getElementById('detail-modal').classList.add('hidden');
-            selectedReportId = null;
-        }
-
-        async function updateStatus(status) {
-            if (!selectedReportId) return;
-
-            try {
-                const res = await fetch(`/api/reports/${selectedReportId}/status`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status })
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Failed to update status');
-
-                closeModal();
-                loadTasks();
-            } catch (err) {
-                alert("Error updating ticket status: " + err.message);
-            }
-        }
-
-        function handleLogout() {
-            if (confirm("Are you sure you want to logout from Field Operations Portal?")) {
-                window.location.href = "/logout";
-            }
-        }
-    </script>
-</body>
-</html>
+      <div class="task-card-footer">
+        <a href="{{ url_for('worker_task_detail', task_id=task.id) }}" class="btn btn-outline-primary btn-sm w-100 fw-bold rounded-pill">
+          <i class="fas fa-folder-open me-1"></i> View Task & Repair Report
+        </a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card border-0 shadow-sm rounded-4 p-5 text-center my-4 bg-white">
+  <div class="d-inline-flex align-items-center justify-content-center bg-light text-muted rounded-circle mb-3 mx-auto" style="width: 70px; height: 70px; font-size: 2rem;">
+    <i class="fas fa-check-double"></i>
+  </div>
+  <h4 class="fw-bold text-dark">No Tasks Found</h4>
+  <p class="text-muted small">You currently have no tasks matching the selected filter.</p>
+  <div>
+    <a href="{{ url_for('worker_tasks', status='all') }}" class="btn btn-primary btn-sm rounded-pill px-4">
+      Show All Assigned Tasks
+    </a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

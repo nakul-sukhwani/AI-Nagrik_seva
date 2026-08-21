@@ -119,6 +119,48 @@ export default function Login() {
             {loading ? 'Authenticating...' : 'Sign In'}
           </button>
         </form>
+
+        {/* Quick Demo / Trial Accounts */}
+        <div className="pt-4 border-t border-gray-800 text-center space-y-3">
+          <p className="text-xs font-semibold text-gray-400">
+            ⚡ Quick Trial Accounts (Click to Fill):
+          </p>
+          {role === 'worker' ? (
+            <div className="flex flex-wrap justify-center gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => { setUniqueId('WRK-1024'); setPassword('password123'); }}
+                className="px-3 py-1.5 rounded-full bg-amber-950/60 text-amber-300 border border-amber-800/60 hover:bg-amber-900/80 transition"
+              >
+                👷 Rahul Sharma (WRK-1024)
+              </button>
+              <button
+                type="button"
+                onClick={() => { setUniqueId('WRK-1001'); setPassword('password123'); }}
+                className="px-3 py-1.5 rounded-full bg-amber-950/60 text-amber-300 border border-amber-800/60 hover:bg-amber-900/80 transition"
+              >
+                🧹 Suresh Kumar (WRK-1001)
+              </button>
+              <button
+                type="button"
+                onClick={() => { setUniqueId('WRK-1005'); setPassword('password123'); }}
+                className="px-3 py-1.5 rounded-full bg-amber-950/60 text-amber-300 border border-amber-800/60 hover:bg-amber-900/80 transition"
+              >
+                💧 Anita Patel (WRK-1005)
+              </button>
+            </div>
+          ) : (
+            <div className="flex justify-center text-xs">
+              <button
+                type="button"
+                onClick={() => { setUniqueId('OFF-2026-001'); setPassword('password123'); }}
+                className="px-4 py-1.5 rounded-full bg-blue-950/60 text-blue-300 border border-blue-800/60 hover:bg-blue-900/80 transition"
+              >
+                🛡️ Demo Officer (OFF-2026-001)
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

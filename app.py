@@ -19,6 +19,10 @@ import os
 import sys
 import sqlite3
 import json
+from functools import wraps
+import uuid
+import secrets
+import random
 
 # =====================================================
 # SUPABASE CONNECTION INJECTOR
@@ -142,6 +146,7 @@ def reverse_geocode(lat, lng):
         return "Location unavailable", None
     import urllib.request
     import json
+
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lng}&zoom=18&addressdetails=1"
         req = urllib.request.Request(
@@ -792,8 +797,8 @@ def api_register_worker():
 @app.route("/api/auth/login-worker", methods=["POST"])
 def api_login_worker():
     data = request.get_json() or {}
-    worker_id = data.get("worker_id")
-    password = data.get("password")
+    worker_id = str(data.get("worker_id", "")).strip()
+    password = str(data.get("password", "")).strip()
 
     if not worker_id or not password:
         return jsonify({"error": "Worker ID and password are required"}), 400
@@ -803,30 +808,44 @@ def api_login_worker():
 
     try:
         cur.execute("""
-            SELECT name, password, email, department 
+            SELECT id, name, password, email, department 
             FROM workers 
-            WHERE worker_id = ?
+            WHERE LOWER(worker_id) = LOWER(?)
         """, (worker_id,))
         row = cur.fetchone()
-        
         if not row:
             return jsonify({"error": "Invalid Worker ID"}), 401
             
-        name, hashed_pw, email, dept = row
+        w_id = row['id']
+        name = row['name']
+        stored_pw = str(row['password']).strip()
+        email = row['email'] if 'email' in row.keys() else ''
+        dept = row['department'] if 'department' in row.keys() else ''
         
-        if not check_password_hash(hashed_pw, password):
+        # 1. Plain-text comparison (for seeded demo accounts)
+        is_valid = (stored_pw == password)
+        
+        # 2. Werkzeug hash comparison (for hashed accounts)
+        if not is_valid and (stored_pw.startswith('scrypt:') or stored_pw.startswith('pbkdf2:')):
+            try:
+                is_valid = check_password_hash(stored_pw, password)
+            except Exception:
+                is_valid = False
+
+        if not is_valid:
             return jsonify({"error": "Invalid password"}), 401
 
         # Set session
         session.clear()
         session['role'] = 'worker'
         session['worker_logged_in'] = True
+        session['worker_db_id'] = w_id
         session['worker_id'] = worker_id
         session['name'] = name
         session['email'] = email
         session['department'] = dept
         
-        return jsonify({"status": "success", "redirect": url_for("worker_dashboard_view")})
+        return jsonify({"status": "success", "redirect": "/worker-dashboard"})
     except Exception as e:
         error_logger.error(f"Worker login error: {str(e)}")
         return jsonify({"error": "Authentication server error"}), 500
@@ -1911,6 +1930,957 @@ def serve_supabase_file(bucket_name, filename):
         return redirect(f"{supabase_client.SUPABASE_URL}/storage/v1/object/public/{bucket_name}/{filename}")
     # Fallback to local files if Supabase is inactive
     return send_file(BASE_DIR / "static" / bucket_name / filename)
+
+# =====================================================
+# WORKER PANEL MODULE & ROUTES
+# =====================================================
+
+def worker_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'worker_db_id' not in session:
+            return redirect(url_for('worker_login', next=request.url))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def get_current_worker():
+    if 'worker_db_id' not in session:
+        return None
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM workers WHERE id = ?", (session['worker_db_id'],))
+    worker = cur.fetchone()
+    conn.close()
+    return worker
+
+@app.context_processor
+def inject_worker():
+    worker = get_current_worker()
+    return dict(current_worker=worker)
+
+@app.route("/worker/login", methods=["GET", "POST"])
+def worker_login():
+    if 'worker_db_id' in session:
+        return redirect(url_for('worker_dashboard'))
+    
+    error = None
+    if request.method == "POST":
+        worker_id_input = request.form.get("worker_id", "").strip()
+        password_input = request.form.get("password", "").strip()
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM workers WHERE LOWER(worker_id) = LOWER(?)", (worker_id_input,))
+        worker = cur.fetchone()
+        conn.close()
+
+        if worker and worker['password'] == password_input:
+            session['worker_db_id'] = worker['id']
+            session['worker_id'] = worker['worker_id']
+            session['worker_name'] = worker['name']
+            session['worker_dept'] = worker['department']
+            
+            next_url = request.args.get('next')
+            if next_url and next_url.startswith('/worker/'):
+                return redirect(next_url)
+            return redirect(url_for('worker_dashboard'))
+        else:
+            error = "Invalid Worker ID or Password. Please check your credentials."
+
+    return render_template("worker_login.html", error=error)
+
+@app.route("/worker/logout", methods=["GET", "POST"])
+def worker_logout():
+    session.pop('worker_db_id', None)
+    session.pop('worker_id', None)
+    session.pop('worker_name', None)
+    session.pop('worker_dept', None)
+    return redirect(url_for('worker_login'))
+
+@app.route("/worker/dashboard")
+@worker_required
+def worker_dashboard():
+    worker = get_current_worker()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    cur.execute("SELECT COUNT(*) FROM reports WHERE assigned_worker_id = ?", (worker['id'],))
+    total_assigned = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM reports WHERE assigned_worker_id = ? AND status = 'ASSIGNED'", (worker['id'],))
+    pending_count = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM reports WHERE assigned_worker_id = ? AND status = 'IN_PROGRESS'", (worker['id'],))
+    in_progress_count = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM reports WHERE assigned_worker_id = ? AND status IN ('PENDING_VERIFICATION', 'RESOLVED', 'COMPLETED')", (worker['id'],))
+    completed_count = cur.fetchone()[0]
+
+    active_count = pending_count + in_progress_count
+
+    cur.execute("""
+        SELECT r.*, 
+               rr.id AS repair_id, rr.after_image_path, rr.submitted_at
+        FROM reports r
+        LEFT JOIN repair_reports rr ON r.id = rr.report_id
+        WHERE r.assigned_worker_id = ?
+        ORDER BY r.id DESC
+    """, (worker['id'],))
+    tasks = cur.fetchall()
+    conn.close()
+
+    formatted_tasks = []
+    for t in tasks:
+        td = dict(t)
+        damage_types = []
+        if td.get('summary'):
+            try:
+                s_dict = json.loads(td['summary'])
+                for k, v in s_dict.items():
+                    damage_types.append(f"{k.capitalize()} ({v})")
+            except:
+                damage_types.append("Civic Issue")
+        td['damage_label'] = ", ".join(damage_types) if damage_types else "Civic Issue"
+        formatted_tasks.append(td)
+
+    stats = {
+        "total_assigned": total_assigned,
+        "active_count": active_count,
+        "pending_count": pending_count,
+        "in_progress_count": in_progress_count,
+        "completed_count": completed_count
+    }
+
+    return render_template("worker_dashboard.html", worker=worker, stats=stats, tasks=formatted_tasks)
+
+@app.route("/worker/tasks")
+@worker_required
+def worker_tasks():
+    worker = get_current_worker()
+    status_filter = request.args.get("status", "all").lower()
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    query = """
+        SELECT r.*, rr.after_image_path, rr.submitted_at 
+        FROM reports r
+        LEFT JOIN repair_reports rr ON r.id = rr.report_id
+        WHERE r.assigned_worker_id = ?
+    """
+    params = [worker['id']]
+
+    if status_filter == "assigned":
+        query += " AND r.status = 'ASSIGNED'"
+    elif status_filter == "in_progress":
+        query += " AND r.status = 'IN_PROGRESS'"
+    elif status_filter in ("submitted", "completed"):
+        query += " AND r.status IN ('PENDING_VERIFICATION', 'RESOLVED', 'COMPLETED')"
+
+    query += " ORDER BY r.id DESC"
+    cur.execute(query, params)
+    tasks = cur.fetchall()
+    conn.close()
+
+    formatted_tasks = []
+    for t in tasks:
+        td = dict(t)
+        damage_types = []
+        if td.get('summary'):
+            try:
+                s_dict = json.loads(td['summary'])
+                for k, v in s_dict.items():
+                    damage_types.append(f"{k.capitalize()} ({v})")
+            except:
+                damage_types.append("Civic Issue")
+        td['damage_label'] = ", ".join(damage_types) if damage_types else "Civic Issue"
+        formatted_tasks.append(td)
+
+    return render_template("worker_dashboard.html", worker=worker, stats=None, tasks=formatted_tasks, current_filter=status_filter)
+
+@app.route("/worker/task/<int:task_id>")
+@worker_required
+def worker_task_detail(task_id):
+    worker = get_current_worker()
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    cur.execute("SELECT * FROM reports WHERE id = ?", (task_id,))
+    task = cur.fetchone()
+
+    if not task:
+        conn.close()
+        flash("Task not found.", "danger")
+        return redirect(url_for('worker_dashboard'))
+
+    if task['assigned_worker_id'] != worker['id']:
+        conn.close()
+        flash("Unauthorized task access.", "danger")
+        return redirect(url_for('worker_dashboard'))
+
+    cur.execute("SELECT * FROM repair_reports WHERE report_id = ?", (task_id,))
+    repair_report = cur.fetchone()
+
+    cur.execute("SELECT id, name, worker_id, designation FROM workers WHERE id != ? ORDER BY name ASC", (worker['id'],))
+    all_workers = cur.fetchall()
+
+    conn.close()
+
+    td = dict(task)
+    damage_types = []
+    if td.get('summary'):
+        try:
+            s_dict = json.loads(td['summary'])
+            for k, v in s_dict.items():
+                damage_types.append(f"{k.capitalize()} ({v})")
+        except:
+            damage_types.append("Civic Issue")
+    td['damage_label'] = ", ".join(damage_types) if damage_types else "Civic Issue"
+
+    return render_template("worker_task_detail.html", worker=worker, task=td, repair_report=dict(repair_report) if repair_report else None, all_workers=all_workers)
+
+@app.route("/worker/task/<int:task_id>/start", methods=["POST"])
+@worker_required
+def worker_start_task(task_id):
+    worker = get_current_worker()
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT assigned_worker_id, status FROM reports WHERE id = ?", (task_id,))
+    row = cur.fetchone()
+
+    if not row or row[0] != worker['id']:
+        conn.close()
+        flash("Unauthorized task action.", "danger")
+        return redirect(url_for('worker_dashboard'))
+
+    cur.execute("UPDATE reports SET status = 'IN_PROGRESS' WHERE id = ?", (task_id,))
+    conn.commit()
+    conn.close()
+
+    flash("Task started! Status changed to IN_PROGRESS.", "info")
+    return redirect(url_for('worker_task_detail', task_id=task_id))
+
+@app.route("/worker/task/<int:task_id>/repair-report", methods=["POST"])
+@worker_required
+def worker_submit_repair(task_id):
+    worker = get_current_worker()
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT assigned_worker_id FROM reports WHERE id = ?", (task_id,))
+    row = cur.fetchone()
+
+    if not row or row[0] != worker['id']:
+        conn.close()
+        flash("Unauthorized task action.", "danger")
+        return redirect(url_for('worker_dashboard'))
+
+    after_image_rel_path = None
+    
+    file = request.files.get('after_image')
+    base64_data = request.form.get('after_image_base64')
+
+    if file and file.filename != '':
+        ext = Path(file.filename).suffix.lower()
+        if ext not in ['.jpg', '.jpeg', '.png', '.webp']:
+            conn.close()
+            flash("Invalid file format. Please upload JPG, PNG, or WEBP.", "warning")
+            return redirect(url_for('worker_task_detail', task_id=task_id))
+        
+        filename = f"after_{task_id}_{int(time.time())}{ext}"
+        if supabase_client.IS_SUPABASE_ACTIVE:
+            file_bytes = file.read()
+            after_image_rel_path = supabase_client.upload_image_to_supabase(file_bytes, filename, bucket_name="reports")
+        else:
+            save_path = REPAIRS_DIR / filename
+            file.save(save_path)
+            after_image_rel_path = f"/static/repairs/{filename}"
+    elif base64_data and 'data:image' in base64_data:
+        try:
+            format_part, imgstr = base64_data.split(';base64,')
+            ext = "." + format_part.split('/')[1].split('+')[0]
+            if ext not in ['.jpg', '.jpeg', '.png', '.webp']:
+                ext = '.jpg'
+            filename = f"after_{task_id}_{int(time.time())}{ext}"
+            file_bytes = base64.b64decode(imgstr)
+            if supabase_client.IS_SUPABASE_ACTIVE:
+                after_image_rel_path = supabase_client.upload_image_to_supabase(file_bytes, filename, bucket_name="reports")
+            else:
+                save_path = REPAIRS_DIR / filename
+                with open(save_path, "wb") as fh:
+                    fh.write(file_bytes)
+                after_image_rel_path = f"/static/repairs/{filename}"
+        except Exception as e:
+            error_logger.error(f"Camera base64 image decoding failed: {e}")
+
+    if not after_image_rel_path:
+        conn.close()
+        flash("After-Repair Image is mandatory to complete and submit a repair report.", "danger")
+        return redirect(url_for('worker_task_detail', task_id=task_id))
+
+    problems_faced = request.form.get("problems_faced", "").strip()
+    tools_used = request.form.get("tools_used", "").strip()
+    team_members = request.form.get("team_members", "").strip()
+    worker_remarks = request.form.get("worker_remarks", "").strip()
+    submitted_at = datetime.now().isoformat()
+
+    cur.execute("SELECT id FROM repair_reports WHERE report_id = ?", (task_id,))
+    existing = cur.fetchone()
+
+    if existing:
+        cur.execute("""
+            UPDATE repair_reports
+            SET after_image_path = ?, problems_faced = ?, tools_used = ?, team_members = ?, worker_remarks = ?, submitted_at = ?
+            WHERE report_id = ?
+        """, (after_image_rel_path, problems_faced, tools_used, team_members, worker_remarks, submitted_at, task_id))
+    else:
+        cur.execute("""
+            INSERT INTO repair_reports (report_id, worker_id, after_image_path, problems_faced, tools_used, team_members, worker_remarks, submitted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (task_id, worker['id'], after_image_rel_path, problems_faced, tools_used, team_members, worker_remarks, submitted_at))
+
+    cur.execute("UPDATE reports SET status = 'PENDING_VERIFICATION' WHERE id = ?", (task_id,))
+
+    conn.commit()
+    conn.close()
+
+    flash("Repair Report successfully submitted! Status moved to Pending Verification.", "success")
+    return redirect(url_for('worker_task_detail', task_id=task_id))
+
+@app.route("/worker/profile")
+@worker_required
+def worker_profile():
+    worker = get_current_worker()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    cur.execute("SELECT COUNT(*) FROM reports WHERE assigned_worker_id = ?", (worker['id'],))
+    total_assigned = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM reports WHERE assigned_worker_id = ? AND status IN ('PENDING_VERIFICATION', 'RESOLVED', 'COMPLETED')", (worker['id'],))
+    completed_count = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM reports WHERE assigned_worker_id = ? AND status IN ('ASSIGNED', 'IN_PROGRESS')", (worker['id'],))
+    active_count = cur.fetchone()[0]
+
+    conn.close()
+
+    stats = {
+        "total_assigned": total_assigned,
+        "completed_count": completed_count,
+        "active_count": active_count
+    }
+
+    return render_template("worker_profile.html", worker=worker, stats=stats)
+
+@app.route("/worker/history")
+@worker_required
+def worker_history():
+    worker = get_current_worker()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT r.*, rr.after_image_path, rr.problems_faced, rr.tools_used, rr.team_members, rr.worker_remarks, rr.submitted_at
+        FROM reports r
+        JOIN repair_reports rr ON r.id = rr.report_id
+        WHERE r.assigned_worker_id = ?
+        ORDER BY rr.id DESC
+    """, (worker['id'],))
+    completed_reports = cur.fetchall()
+    conn.close()
+
+    formatted_history = []
+    for r in completed_reports:
+        rd = dict(r)
+        damage_types = []
+        if rd.get('summary'):
+            try:
+                s_dict = json.loads(rd['summary'])
+                for k, v in s_dict.items():
+                    damage_types.append(f"{k.capitalize()} ({v})")
+            except:
+                damage_types.append("Civic Issue")
+        rd['damage_label'] = ", ".join(damage_types) if damage_types else "Civic Issue"
+        formatted_history.append(rd)
+
+    return render_template("worker_history.html", worker=worker, history=formatted_history)
+
+# =====================================================
+
+# =====================================================
+# SAMAJ SEWA - CITIZEN PORTAL ROUTES & APIS
+# =====================================================
+
+@app.route("/citizen")
+@app.route("/user")
+def citizen_portal():
+    """
+    Render Samaj Sewa Citizen Civic Issue Portal.
+    """
+    return render_template("citizen.html")
+
+
+@app.route("/api/citizen/analyze", methods=["POST"])
+def api_citizen_analyze():
+    """
+    Instant AI analysis endpoint for image preview.
+    Reuses the custom YOLOv8 model inference pipeline.
+    """
+    file = request.files.get("image")
+    if not file:
+        return jsonify({"error": "No image file provided for analysis"}), 400
+
+    try:
+        image = Image.open(file.stream).convert("RGB")
+        img_base64, summary, avg_conf, scoring, class_confidences, latency_ms = run_inference(image)
+
+        # Determine department based on detected items
+        department = "Civic Operations"
+        has_pothole = any("pothole" in k.lower() for k in summary.keys())
+        has_garbage = any("garbage" in k.lower() for k in summary.keys())
+
+        if has_pothole and has_garbage:
+            department = "Roads & Sanitation Joint Task Force"
+            detected_label = f"Potholes ({summary.get('pothole', 0)}) & Garbage Dumps ({summary.get('garbage', 0)})"
+            category = "Road & Sanitation Hazard"
+        elif has_pothole:
+            department = "Roads Department"
+            detected_label = f"Pothole Detected ({summary.get('pothole', 0)} spot{'s' if summary.get('pothole', 0) > 1 else ''})"
+            category = "Road Infrastructure Damage"
+        elif has_garbage:
+            department = "Department of Environment"
+            detected_label = f"Garbage Waste Detected ({summary.get('garbage', 0)} pile{'s' if summary.get('garbage', 0) > 1 else ''})"
+            category = "Sanitation & Waste Accumulation"
+        else:
+            department = "Municipal Grievance Cell"
+            detected_label = "No severe road/garbage hazard detected"
+            category = "General Civic Problem"
+
+        combined_score = scoring.get("combined_score", 0)
+        if combined_score < 40:
+            severity_level = f"Low (Score: {combined_score}/100)"
+        elif combined_score < 70:
+            severity_level = f"Medium (Score: {combined_score}/100)"
+        else:
+            severity_level = f"High (Score: {combined_score}/100)"
+
+        confidence_pct = round(avg_conf * 100, 1) if avg_conf > 0 else 0
+
+        return jsonify({
+            "status": "success",
+            "detected": detected_label,
+            "category": category,
+            "summary": summary,
+            "severity": severity_level,
+            "confidence": confidence_pct,
+            "department": department,
+            "annotated_image": img_base64,
+            "latency_ms": int(latency_ms)
+        })
+    except Exception as e:
+        error_logger.error(f"Citizen AI analysis error: {e}")
+        return jsonify({"error": "Failed to analyze image", "details": str(e)}), 500
+
+
+@app.route("/api/citizen/report", methods=["POST"])
+def api_citizen_report():
+    """
+    Submit and register a new citizen complaint.
+    Extracts citizen metadata, handles media, performs AI diagnostic,
+    stores record in SQLite database, and returns unique tracking ID.
+    """
+    user_id = request.form.get("user_id", "").strip() or f"CITIZEN-{random.randint(1000, 9999)}"
+    contact_name = request.form.get("contact_name", "").strip() or "Citizen"
+    contact_phone = request.form.get("contact_phone", "").strip() or "N/A"
+    contact_email = request.form.get("contact_email", "").strip() or None
+    category = request.form.get("category", "Other Civic Infrastructure Problem").strip()
+    description = request.form.get("description", "").strip()
+    landmark = request.form.get("landmark", "").strip() or None
+
+    if not description:
+        return jsonify({"status": "error", "error": "Problem description is required."}), 400
+
+    # Parse coordinates
+    lat_raw = request.form.get("latitude")
+    lng_raw = request.form.get("longitude")
+    try:
+        latitude = float(lat_raw) if lat_raw else None
+        longitude = float(lng_raw) if lng_raw else None
+    except ValueError:
+        latitude = longitude = None
+
+    # Generate tracking ID and timestamp
+    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    date_code = datetime.now().strftime("%Y%m%d")
+    random_code = secrets.token_hex(2).upper()
+    complaint_id = f"SS-{date_code}-{random_code}"
+    created_at = datetime.now().isoformat()
+
+    image_path = None
+    video_path = None
+    ai_summary = {}
+    ai_detected = "Pending Assessment"
+    ai_severity = "Low"
+    ai_confidence = 0.0
+    department = "Municipal Operations"
+
+    reports_dir = BASE_DIR / "static" / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+
+    # Check for Image Upload
+    image_file = request.files.get("image")
+    video_file = request.files.get("video")
+
+    if image_file and image_file.filename:
+        try:
+            image = Image.open(image_file.stream).convert("RGB")
+            img_base64, summary, avg_conf, scoring, class_confidences, latency_ms = run_inference(image)
+            
+            # Save original / annotated image
+            filename = f"citizen_{complaint_id}_{timestamp_str}.png"
+            if supabase_client.IS_SUPABASE_ACTIVE:
+                import io
+                img_byte_arr = io.BytesIO()
+                image.save(img_byte_arr, format='PNG')
+                file_bytes = img_byte_arr.getvalue()
+                image_path = supabase_client.upload_image_to_supabase(file_bytes, filename, bucket_name="reports")
+            else:
+                full_path = reports_dir / filename
+                image.save(full_path)
+                image_path = f"static/reports/{filename}"
+
+            ai_summary = summary
+            ai_confidence = round(avg_conf * 100, 1)
+
+            has_pothole = any("pothole" in k.lower() for k in summary.keys())
+            has_garbage = any("garbage" in k.lower() for k in summary.keys())
+
+            if has_pothole and has_garbage:
+                department = "Roads & Sanitation Joint Task Force"
+                ai_detected = f"Potholes ({summary.get('pothole', 0)}) & Garbage Dumps ({summary.get('garbage', 0)})"
+            elif has_pothole:
+                department = "Roads Department"
+                ai_detected = f"Pothole Detected ({summary.get('pothole', 0)} spot{'s' if summary.get('pothole', 0) > 1 else ''})"
+            elif has_garbage:
+                department = "Department of Environment"
+                ai_detected = f"Garbage Waste Detected ({summary.get('garbage', 0)} pile{'s' if summary.get('garbage', 0) > 1 else ''})"
+            else:
+                department = "Roads Department" if "road" in category.lower() or "pothole" in category.lower() else "Department of Environment" if "garbage" in category.lower() else "Civic Grievance Cell"
+                ai_detected = "No hazardous object detected in photo (Manual Verification Queued)"
+
+            combined_score = scoring.get("combined_score", 0)
+            if combined_score < 40:
+                ai_severity = f"Low (Score: {combined_score}/100)"
+            elif combined_score < 70:
+                ai_severity = f"Medium (Score: {combined_score}/100)"
+            else:
+                ai_severity = f"High (Score: {combined_score}/100)"
+
+        except Exception as e:
+            error_logger.error(f"Error processing citizen image: {e}")
+            ai_detected = "Analysis unavailable (Image parsing issue)"
+            ai_severity = "Review Pending"
+
+    elif video_file and video_file.filename:
+        try:
+            temp_dir = BASE_DIR / "static" / "temp"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            temp_path = temp_dir / f"citizen_video_{complaint_id}_{timestamp_str}.mp4"
+            video_file.save(temp_path)
+
+            summary, key_frames, avg_conf = process_video_frames(temp_path)
+            if temp_path.exists():
+                os.remove(temp_path)
+
+            ai_summary = summary
+            ai_confidence = round(avg_conf * 100, 1)
+
+            if key_frames:
+                image_path = key_frames[0]
+                ai_detected = f"Video Keyframe Detections: {json.dumps(summary)}"
+            else:
+                ai_detected = "Video Stream Analysis Completed (No distinct hazards)"
+
+            total_issues = sum(summary.values())
+            if total_issues <= 2:
+                ai_severity = "Low"
+            elif total_issues <= 6:
+                ai_severity = "Medium"
+            else:
+                ai_severity = "High"
+
+            department = "Roads Department" if "road" in category.lower() or "pothole" in category.lower() else "Department of Environment" if "garbage" in category.lower() else "Civic Grievance Cell"
+        except Exception as e:
+            error_logger.error(f"Error processing citizen video: {e}")
+            ai_detected = "Video analysis unavailable"
+            ai_severity = "Review Pending"
+    else:
+        # Fallback when no media is provided
+        ai_detected = "Media evidence not attached"
+        ai_severity = "Manual Review Required"
+        department = "Roads Department" if "road" in category.lower() or "pothole" in category.lower() else "Department of Environment" if "garbage" in category.lower() else "Civic Grievance Cell"
+
+    # Save into SQLite database
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+        INSERT INTO complaints
+        (complaint_id, user_id, contact_name, contact_phone, contact_email, category, description, image_path, video_path, latitude, longitude, landmark, created_at, ai_detected_category, ai_summary, ai_severity, ai_confidence, department, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        complaint_id,
+        user_id,
+        contact_name,
+        contact_phone,
+        contact_email,
+        category,
+        description,
+        image_path,
+        video_path,
+        latitude,
+        longitude,
+        landmark,
+        created_at,
+        ai_detected,
+        json.dumps(ai_summary),
+        ai_severity,
+        ai_confidence,
+        department,
+        "Submitted"
+    ))
+
+    # Also record into reports table if image is available, ensuring admin dashboard sync
+    if image_path:
+        cur.execute("""
+            INSERT INTO reports
+            (image_path, summary, severity, latitude, longitude, created_at, type, department, avg_confidence, latency_ms, class_confidences)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            image_path,
+            json.dumps(ai_summary),
+            ai_severity,
+            latitude,
+            longitude,
+            created_at,
+            'citizen_complaint',
+            department,
+            ai_confidence / 100.0 if ai_confidence else None,
+            120,
+            json.dumps({})
+        ))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "status": "success",
+        "complaint_id": complaint_id,
+        "created_at": created_at,
+        "department": department,
+        "complaint_status": "Submitted",
+        "ai_results": {
+            "detected": ai_detected,
+            "category": category,
+            "severity": ai_severity,
+            "confidence": ai_confidence
+        },
+        "message": "Complaint successfully registered on Samaj Sewa platform."
+    })
+
+
+@app.route("/api/citizen/track/<query>", methods=["GET"])
+def api_citizen_track(query):
+    """
+    Search and track complaint by complaint_id or user_id.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT complaint_id, user_id, contact_name, contact_phone, contact_email, category, description,
+               image_path, video_path, latitude, longitude, landmark, created_at,
+               ai_detected_category, ai_summary, ai_severity, ai_confidence, department, status, admin_notes
+        FROM complaints
+        WHERE complaint_id = ? OR user_id = ?
+        ORDER BY id DESC
+        LIMIT 1
+    """, (query, query))
+    row = cur.fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({"status": "error", "message": "Complaint not found"}), 404
+
+    complaint = {
+        "complaint_id": row[0],
+        "user_id": row[1],
+        "contact_name": row[2],
+        "contact_phone": row[3],
+        "contact_email": row[4],
+        "category": row[5],
+        "description": row[6],
+        "image_path": row[7],
+        "video_path": row[8],
+        "latitude": row[9],
+        "longitude": row[10],
+        "landmark": row[11],
+        "created_at": row[12],
+        "ai_detected_category": row[13],
+        "ai_summary": json.loads(row[14]) if row[14] else {},
+        "ai_severity": row[15],
+        "ai_confidence": row[16],
+        "department": row[17],
+        "status": row[18],
+        "admin_notes": row[19]
+    }
+
+    return jsonify({"status": "success", "complaint": complaint})
+
+
+@app.route("/api/citizen/complaints", methods=["GET"])
+def api_citizen_list_complaints():
+    """
+    List complaints for community transparency feed or citizen dashboard.
+    """
+    user_id = request.args.get("user_id")
+    limit = int(request.args.get("limit", 20))
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    if user_id:
+        cur.execute("""
+            SELECT complaint_id, user_id, contact_name, category, description, image_path, latitude, longitude, created_at, ai_detected_category, ai_severity, department, status
+            FROM complaints
+            WHERE user_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+        """, (user_id, limit))
+    else:
+        cur.execute("""
+            SELECT complaint_id, user_id, contact_name, category, description, image_path, latitude, longitude, created_at, ai_detected_category, ai_severity, department, status
+            FROM complaints
+            ORDER BY id DESC
+            LIMIT ?
+        """, (limit,))
+
+    rows = cur.fetchall()
+    conn.close()
+
+    complaints = []
+    for r in rows:
+        complaints.append({
+            "complaint_id": r[0],
+            "user_id": r[1],
+            "contact_name": r[2],
+            "category": r[3],
+            "description": r[4],
+            "image_path": r[5],
+            "latitude": r[6],
+            "longitude": r[7],
+            "created_at": r[8],
+            "ai_detected_category": r[9],
+            "ai_severity": r[10],
+            "department": r[11],
+            "status": r[12]
+        })
+
+    return jsonify({"status": "success", "complaints": complaints})
+
+
+@app.route("/api/citizen/update-status", methods=["POST"])
+def api_citizen_update_status():
+    """
+    Admin endpoint to update status and notes for a citizen complaint.
+    """
+    data = request.get_json() or {}
+    complaint_id = data.get("complaint_id")
+    new_status = data.get("status")
+    admin_notes = data.get("admin_notes", "")
+
+    if not complaint_id or not new_status:
+        return jsonify({"error": "Missing complaint_id or status"}), 400
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE complaints
+        SET status = ?, admin_notes = ?
+        WHERE complaint_id = ?
+    """, (new_status, admin_notes, complaint_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "success", "message": f"Complaint {complaint_id} updated to {new_status}"})
+
+
+# =====================================================
+# NEXT.JS WORKER DASHBOARD JSON APIS
+# =====================================================
+
+@app.route("/api/worker/dashboard-data", methods=["GET"])
+def api_worker_dashboard_data():
+    worker_id_param = request.args.get("worker_id", session.get("worker_id", "WRK-1024")).strip()
+    
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    cur.execute("SELECT * FROM workers WHERE LOWER(worker_id) = LOWER(?)", (worker_id_param,))
+    worker_row = cur.fetchone()
+
+    if not worker_row:
+        # Fallback to first worker in DB
+        cur.execute("SELECT * FROM workers ORDER BY id ASC LIMIT 1")
+        worker_row = cur.fetchone()
+
+    if not worker_row:
+        conn.close()
+        return jsonify({"error": "Worker not found"}), 404
+
+    worker = dict(worker_row)
+
+    # Fetch stats
+    cur.execute("SELECT COUNT(*) FROM reports WHERE assigned_worker_id = ?", (worker['id'],))
+    total_assigned = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM reports WHERE assigned_worker_id = ? AND status = 'ASSIGNED'", (worker['id'],))
+    pending_count = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM reports WHERE assigned_worker_id = ? AND status = 'IN_PROGRESS'", (worker['id'],))
+    in_progress_count = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM reports WHERE assigned_worker_id = ? AND status IN ('PENDING_VERIFICATION', 'RESOLVED', 'COMPLETED')", (worker['id'],))
+    completed_count = cur.fetchone()[0]
+
+    active_count = pending_count + in_progress_count
+
+    # Fetch tasks
+    cur.execute("""
+        SELECT r.*, 
+               rr.id AS repair_id, rr.after_image_path, rr.submitted_at, rr.problems_faced, rr.tools_used, rr.team_members, rr.worker_remarks
+        FROM reports r
+        LEFT JOIN repair_reports rr ON r.id = rr.report_id
+        WHERE r.assigned_worker_id = ?
+        ORDER BY r.id DESC
+    """, (worker['id'],))
+    tasks_rows = cur.fetchall()
+    conn.close()
+
+    formatted_tasks = []
+    for t in tasks_rows:
+        td = dict(t)
+        damage_types = []
+        if td.get('summary'):
+            try:
+                s_dict = json.loads(td['summary'])
+                for k, v in s_dict.items():
+                    damage_types.append(f"{k.capitalize()} ({v})")
+            except:
+                damage_types.append("Civic Issue")
+        td['damage_label'] = ", ".join(damage_types) if damage_types else "Civic Issue"
+        formatted_tasks.append(td)
+
+    stats = {
+        "total_assigned": total_assigned,
+        "active_count": active_count,
+        "pending_count": pending_count,
+        "in_progress_count": in_progress_count,
+        "completed_count": completed_count
+    }
+
+    return jsonify({
+        "status": "success",
+        "worker": worker,
+        "stats": stats,
+        "tasks": formatted_tasks
+    })
+
+@app.route("/api/worker/start-task/<int:task_id>", methods=["POST"])
+def api_worker_start_task(task_id):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("UPDATE reports SET status = 'IN_PROGRESS' WHERE id = ?", (task_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success", "message": "Task started!"})
+
+@app.route("/api/worker/submit-repair/<int:task_id>", methods=["POST"])
+def api_worker_submit_repair(task_id):
+    worker_id = request.form.get("worker_id", "2")
+    file = request.files.get("after_image")
+    base64_data = request.form.get("after_image_base64")
+    problems_faced = request.form.get("problems_faced", "").strip()
+    tools_used = request.form.get("tools_used", "").strip()
+    team_members = request.form.get("team_members", "").strip()
+    worker_remarks = request.form.get("worker_remarks", "").strip()
+    submitted_at = datetime.now().isoformat()
+
+    after_image_rel_path = None
+    if file and file.filename != '':
+        ext = Path(file.filename).suffix.lower() or ".jpg"
+        filename = f"after_{task_id}_{int(time.time())}{ext}"
+        if supabase_client.IS_SUPABASE_ACTIVE:
+            file_bytes = file.read()
+            after_image_rel_path = supabase_client.upload_image_to_supabase(file_bytes, filename, bucket_name="reports")
+        else:
+            save_path = BASE_DIR / "static" / "repairs" / filename
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            file.save(save_path)
+            after_image_rel_path = f"/static/repairs/{filename}"
+    elif base64_data and 'data:image' in base64_data:
+        try:
+            format_part, imgstr = base64_data.split(';base64,')
+            ext = "." + format_part.split('/')[1].split('+')[0]
+            filename = f"after_{task_id}_{int(time.time())}{ext}"
+            file_bytes = base64.b64decode(imgstr)
+            if supabase_client.IS_SUPABASE_ACTIVE:
+                after_image_rel_path = supabase_client.upload_image_to_supabase(file_bytes, filename, bucket_name="reports")
+            else:
+                save_path = BASE_DIR / "static" / "repairs" / filename
+                save_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(save_path, "wb") as fh:
+                    fh.write(file_bytes)
+                after_image_rel_path = f"/static/repairs/{filename}"
+        except Exception as e:
+            error_logger.error(f"Base64 error: {e}")
+
+    if not after_image_rel_path:
+        after_image_rel_path = "/static/repairs/default_after.png"
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM repair_reports WHERE report_id = ?", (task_id,))
+    existing = cur.fetchone()
+
+    if existing:
+        cur.execute("""
+            UPDATE repair_reports
+            SET after_image_path = ?, problems_faced = ?, tools_used = ?, team_members = ?, worker_remarks = ?, submitted_at = ?
+            WHERE report_id = ?
+        """, (after_image_rel_path, problems_faced, tools_used, team_members, worker_remarks, submitted_at, task_id))
+    else:
+        cur.execute("""
+            INSERT INTO repair_reports (report_id, worker_id, after_image_path, problems_faced, tools_used, team_members, worker_remarks, submitted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (task_id, worker_id, after_image_rel_path, problems_faced, tools_used, team_members, worker_remarks, submitted_at))
+
+    cur.execute("UPDATE reports SET status = 'PENDING_VERIFICATION' WHERE id = ?", (task_id,))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "success", "message": "Repair report submitted successfully!"})
 
 # =====================================================
 # APPLICATION ENTRY POINT

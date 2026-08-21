@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Samaj Sewa | Citizen Civic Issue Portal</title>
+
+    <!-- Bootstrap 5 CSS -->
+    <link href="/static/lib/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Bootstrap Icons -->
+    <link href="/static/lib/css/bootstrap-icons.css" rel="stylesheet">
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="/static/lib/css/leaflet.css">
+
+    <!-- Custom Citizen Portal Styling -->
+    <link rel="stylesheet" href="/static/citizen.css">
+
+    <!-- Favicon -->
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🇮🇳</text></svg>">
+</head>
+
+<body class="citizen-body">
+
+    <!-- =====================================================
+         NAVBAR
+    ===================================================== -->
+    <nav class="citizen-navbar">
+        <div class="container-fluid d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <!-- Brand -->
+            <div class="d-flex align-items-center gap-3">
+                <div class="bg-primary bg-opacity-25 p-2 rounded-3 border border-primary border-opacity-50">
+                    <i class="bi bi-people-fill fs-4 text-info"></i>
+                </div>
+                <div>
+                    <h5 class="mb-0 fw-bold d-flex align-items-center gap-2">
+                        <span class="brand-badge">समाज सेवा</span>
+                        <span class="text-white">| Samaj Sewa</span>
+                    </h5>
+                    <div class="brand-subtitle">Smart Civic Issue Redressal Platform</div>
+                </div>
+            </div>
+
+            <!-- Live Status & Mode Switcher -->
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+                <span id="liveTimestampBadge" class="badge bg-dark border border-secondary text-info-emphasis px-3 py-2 rounded-pill font-monospace">
+                    <i class="bi bi-clock me-1"></i> Syncing time...
+                </span>
+                
+                <!-- Direct Switch to Admin Command Center -->
+                <a href="/" class="btn btn-outline-warning btn-sm px-3 rounded-pill fw-semibold shadow-sm">
+                    <i class="bi bi-shield-lock-fill me-1"></i> Admin Command Center
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- =====================================================
+         HERO BANNER & TAB NAVIGATION
+    ===================================================== -->
+    <div class="container py-4">
+        <div class="row align-items-center mb-4 g-3">
+            <div class="col-lg-8">
+                <span class="badge bg-info-subtle text-info border border-info px-3 py-1 rounded-pill mb-2">
+                    <i class="bi bi-cpu-fill me-1"></i> AI-Powered Smart City Infrastructure
+                </span>
+                <h2 class="fw-bold text-white mb-1">Empowering Citizens for a Cleaner & Safer City</h2>
+                <p class="text-white-50 mb-0">
+                    Report road potholes, garbage accumulation, or civic hazards. Our YOLOv8 AI analyzes severity and auto-routes your grievance to municipal authorities.
+                </p>
+            </div>
+            <div class="col-lg-4 text-lg-end">
+                <!-- Navigation Tabs -->
+                <ul class="nav nav-pills citizen-tabs justify-content-lg-end" id="citizenMainTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="report-tab" data-bs-toggle="pill" data-bs-target="#report-pane" type="button" role="tab">
+                            <i class="bi bi-pencil-square me-1"></i> Report Issue
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="track-tab" data-bs-toggle="pill" data-bs-target="#track-pane" type="button" role="tab">
+                            <i class="bi bi-search me-1"></i> Track Status
+                        </button>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- =====================================================
+             TAB CONTENT PANES
+        ===================================================== -->
+        <div class="tab-content" id="citizenMainTabsContent">
+
+            <!-- =================================================
+                 TAB 1: REPORT ISSUE WORKFLOW
+            ================================================== -->
+            <div class="tab-pane fade show active" id="report-pane" role="tabpanel">
+                <form id="citizenComplaintForm" enctype="multipart/form-data">
+                    <div class="row g-4">
+
+                        <!-- LEFT COLUMN: CITIZEN ID, CONTACT, ISSUE DETAILS -->
+                        <div class="col-lg-6">
+
+                            <!-- SECTION 1: CITIZEN IDENTITY -->
+                            <div class="citizen-card mb-4">
+                                <div class="citizen-card-header d-flex justify-content-between align-items-center">
+                                    <span class="fw-bold text-white">
+                                        <i class="bi bi-person-badge text-primary me-2"></i>1. Citizen Identification
+                                    </span>
+                                    <span class="badge bg-secondary-subtle text-light small">Required</span>
+                                </div>
+                                <div class="citizen-card-body">
+                                    <div class="row g-3">
+                                        <div class="col-md-7">
+                                            <label class="form-label text-white-50 small mb-1">Citizen / User ID</label>
+                                            <div class="input-group">
+                                                <input type="text" id="citizenUserId" class="form-control citizen-input font-monospace" placeholder="e.g. CITIZEN-1024" required>
+                                                <button type="button" id="btnGenUserId" class="btn btn-outline-info" title="Generate New ID">
+                                                    <i class="bi bi-arrow-repeat"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-5">
+                                            <label class="form-label text-white-50 small mb-1">Contact Name</label>
+                                            <input type="text" id="citizenName" class="form-control citizen-input" placeholder="Your Name" required>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label text-white-50 small mb-1">Mobile Phone Number</label>
+                                            <input type="tel" id="citizenPhone" class="form-control citizen-input" placeholder="+91 XXXXX-XXXXX" required>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label text-white-50 small mb-1">Email ID (Optional)</label>
+                                            <input type="email" id="citizenEmail" class="form-control citizen-input" placeholder="citizen@domain.com">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- SECTION 2: PROBLEM CATEGORY & DESCRIPTION -->
+                            <div class="citizen-card mb-4">
+                                <div class="citizen-card-header">
+                                    <span class="fw-bold text-white">
+                                        <i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>2. Civic Problem Category & Details
+                                    </span>
+                                </div>
+                                <div class="citizen-card-body">
+                                    <label class="form-label text-white-50 small mb-2">Select Issue Category</label>
+                                    <div class="row g-2 mb-3">
+                                        <div class="col-4">
+                                            <input type="radio" name="category" id="cat_road" value="Road Damage / Pothole" class="category-radio-btn" checked>
+                                            <label for="cat_road" class="category-card-label">
+                                                <i class="bi bi-cone-striped"></i>
+                                                <span class="small fw-semibold">Pothole / Road</span>
+                                            </label>
+                                        </div>
+                                        <div class="col-4">
+                                            <input type="radio" name="category" id="cat_garbage" value="Garbage / Sanitation Problem" class="category-radio-btn">
+                                            <label for="cat_garbage" class="category-card-label">
+                                                <i class="bi bi-trash3-fill"></i>
+                                                <span class="small fw-semibold">Garbage / Waste</span>
+                                            </label>
+                                        </div>
+                                        <div class="col-4">
+                                            <input type="radio" name="category" id="cat_other" value="Other Civic Infrastructure Problem" class="category-radio-btn">
+                                            <label for="cat_other" class="category-card-label">
+                                                <i class="bi bi-tools"></i>
+                                                <span class="small fw-semibold">Other Hazard</span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label class="form-label text-white-50 small mb-1">Problem Description</label>
+                                        <textarea id="citizenDescription" class="form-control citizen-textarea" rows="3" placeholder="Describe the location context, extent of damage, hazard to vehicles/pedestrians, or sanitation risk..." required></textarea>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- SECTION 3: GPS LOCATION -->
+                            <div class="citizen-card mb-4">
+                                <div class="citizen-card-header d-flex justify-content-between align-items-center">
+                                    <span class="fw-bold text-white">
+                                        <i class="bi bi-geo-alt-fill text-danger me-2"></i>3. Incident Location & GPS
+                                    </span>
+                                    <span id="locationStatusBadge" class="badge bg-secondary-subtle text-light small">Location Pending</span>
+                                </div>
+                                <div class="citizen-card-body">
+                                    <div class="d-flex gap-2 mb-3">
+                                        <button type="button" id="btnUseLocation" class="btn btn-outline-info flex-grow-1">
+                                            <i class="bi bi-crosshair me-1"></i> Use My Current Location
+                                        </button>
+                                    </div>
+
+                                    <div class="row g-2 mb-3">
+                                        <div class="col-6">
+                                            <label class="form-label text-white-50 small mb-1">Latitude</label>
+                                            <input type="text" id="citizenLatitude" class="form-control citizen-input font-monospace form-control-sm" placeholder="18.520400" readonly>
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="form-label text-white-50 small mb-1">Longitude</label>
+                                            <input type="text" id="citizenLongitude" class="form-control citizen-input font-monospace form-control-sm" placeholder="73.856700" readonly>
+                                        </div>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label class="form-label text-white-50 small mb-1">Landmark / Street Address (Optional)</label>
+                                        <input type="text" id="citizenLandmark" class="form-control citizen-input" placeholder="e.g., Near City Hospital Gate 2, MG Road">
+                                    </div>
+
+                                    <!-- Interactive Map Picker -->
+                                    <div id="citizenMap" class="mb-1"></div>
+                                    <small class="text-white-50" style="font-size: 0.75rem;">
+                                        <i class="bi bi-info-circle me-1"></i> Click or drag the marker on the map to pinpoint exact location.
+                                    </small>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <!-- RIGHT COLUMN: MEDIA EVIDENCE, AI SCAN & SUBMISSION -->
+                        <div class="col-lg-6">
+
+                            <!-- SECTION 4: MEDIA EVIDENCE UPLOAD -->
+                            <div class="citizen-card mb-4">
+                                <div class="citizen-card-header d-flex justify-content-between align-items-center">
+                                    <span class="fw-bold text-white">
+                                        <i class="bi bi-camera-fill text-info me-2"></i>4. Media Evidence (Photo / Video)
+                                    </span>
+                                    <span class="badge bg-primary-subtle text-primary border border-primary small">AI Scanned</span>
+                                </div>
+                                <div class="citizen-card-body">
+
+                                    <!-- Dropzone Upload Area -->
+                                    <div id="citizenDropzone" class="citizen-dropzone mb-3">
+                                        <i class="bi bi-cloud-arrow-up-fill fs-1 text-info mb-2 d-block"></i>
+                                        <h6 class="text-white mb-1">Drag & Drop Media Evidence Here</h6>
+                                        <p class="text-white-50 small mb-3">Supports JPG, PNG photos or short MP4 video clips</p>
+
+                                        <div class="d-flex justify-content-center gap-2 flex-wrap">
+                                            <button type="button" id="btnBrowseMedia" class="btn btn-primary btn-sm px-3">
+                                                <i class="bi bi-folder2-open me-1"></i> Browse Photo
+                                            </button>
+                                            <button type="button" id="btnOpenCam" class="btn btn-outline-info btn-sm px-3">
+                                                <i class="bi bi-camera me-1"></i> Live Camera
+                                            </button>
+                                            <label for="citizenVideoInput" class="btn btn-outline-light btn-sm px-3 mb-0" style="cursor: pointer;">
+                                                <i class="bi bi-camera-video me-1"></i> Upload Video
+                                            </label>
+                                        </div>
+
+                                        <input type="file" id="citizenMediaInput" accept="image/*" class="d-none">
+                                        <input type="file" id="citizenVideoInput" accept="video/*" class="d-none">
+                                    </div>
+
+                                    <!-- Live Camera Streaming Pane -->
+                                    <div id="liveCameraSection" class="d-none text-center p-3 citizen-card mb-3">
+                                        <video id="cameraVideo" autoplay playsinline class="mb-3"></video>
+                                        <div class="d-flex justify-content-center gap-2">
+                                            <button type="button" id="btnCaptureCam" class="btn btn-success btn-sm px-3">
+                                                <i class="bi bi-camera-fill me-1"></i> Capture Photo
+                                            </button>
+                                            <button type="button" id="btnCloseCam" class="btn btn-outline-secondary btn-sm px-3">
+                                                Cancel
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Media Preview Pane -->
+                                    <div id="mediaPreviewContainer" class="d-none text-center position-relative mb-3">
+                                        <img id="citizenPreviewImg" class="img-fluid rounded-3 border border-secondary w-100 mb-2" style="max-height: 260px; object-fit: contain; background: #000;" alt="Selected Media">
+                                        <video id="citizenPreviewVideo" controls class="img-fluid rounded-3 border border-secondary w-100 mb-2 d-none" style="max-height: 260px;"></video>
+                                        <button type="button" id="btnRemoveMedia" class="btn btn-danger btn-sm position-absolute top-0 end-0 m-2 rounded-circle" title="Remove Media">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    </div>
+
+                                    <!-- SECTION 5: AI ANALYSIS RESULT SECTION -->
+                                    <div id="aiResultsPanel" class="ai-results-panel d-none">
+                                        <!-- Loading Spinner for AI -->
+                                        <div id="aiAnalysisLoading" class="text-center py-3 d-none">
+                                            <div class="spinner-border text-info mb-2" role="status"></div>
+                                            <div class="text-info-emphasis small fw-semibold">Running YOLOv8 Neural Analysis...</div>
+                                        </div>
+
+                                        <!-- AI Detection Details -->
+                                        <div id="aiAnalysisDetails">
+                                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                                <span class="badge bg-primary-subtle text-primary border border-primary px-3 py-1 rounded-pill">
+                                                    <i class="bi bi-robot me-1"></i> AI Media Diagnostics
+                                                </span>
+                                                <span id="aiSeverityBadge" class="badge severity-pill-low px-3 py-1 rounded-pill">
+                                                    Low
+                                                </span>
+                                            </div>
+
+                                            <div class="row g-2 mb-3">
+                                                <div class="col-6">
+                                                    <small class="text-white-50 d-block">Detected Issue</small>
+                                                    <span id="aiDetectedIssue" class="fw-bold text-white">None</span>
+                                                </div>
+                                                <div class="col-6">
+                                                    <small class="text-white-50 d-block">AI Category</small>
+                                                    <span id="aiDetectedCategory" class="fw-semibold text-info">General</span>
+                                                </div>
+                                                <div class="col-6">
+                                                    <small class="text-white-50 d-block">Confidence Score</small>
+                                                    <span id="aiConfidenceScore" class="fw-bold text-success">--</span>
+                                                </div>
+                                                <div class="col-6">
+                                                    <small class="text-white-50 d-block">Routing Department</small>
+                                                    <span id="aiAssignedDept" class="fw-semibold text-warning">Municipal Operations</span>
+                                                </div>
+                                            </div>
+
+                                            <!-- Visual Bounding Box Preview -->
+                                            <div id="aiAnnotatedPreviewBox" class="mt-2 text-center d-none">
+                                                <small class="text-white-50 d-block mb-1 text-start">Annotated YOLOv8 Output:</small>
+                                                <img id="aiAnnotatedImg" class="img-fluid rounded border border-info border-opacity-50" style="max-height: 180px;" alt="AI Visual Bounding Boxes">
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+
+                            <!-- SUBMIT ACTION -->
+                            <div class="citizen-card p-4 text-center">
+                                <p class="text-white-50 small mb-3">
+                                    <i class="bi bi-shield-check text-success me-1"></i>
+                                    Upon submission, a unique Tracking ID is generated, recorded with automatic server timestamps, and queued for administrative action.
+                                </p>
+                                <button type="submit" id="btnSubmitComplaint" class="btn btn-citizen-submit w-100 py-3 fs-5">
+                                    <i class="bi bi-send-fill me-2"></i> Submit Civic Complaint
+                                </button>
+                            </div>
+
+                        </div>
+
+                    </div>
+                </form>
+            </div>
+
+            <!-- =================================================
+                 TAB 2: TRACK COMPLAINT WORKFLOW
+            ================================================== -->
+            <div class="tab-pane fade" id="track-pane" role="tabpanel">
+                <div class="row justify-content-center">
+                    <div class="col-lg-8">
+                        <div class="citizen-card p-4 mb-4">
+                            <h4 class="fw-bold text-white mb-2">
+                                <i class="bi bi-search text-primary me-2"></i>Track Civic Complaint Status
+                            </h4>
+                            <p class="text-white-50 small mb-4">Enter your unique Complaint Tracking ID (e.g., SS-20260816-XXXX) or your Citizen ID.</p>
+
+                            <div class="input-group mb-3">
+                                <input type="text" id="trackComplaintIdInput" class="form-control citizen-input font-monospace" placeholder="Enter Complaint ID (e.g., SS-20260816-8A1C)">
+                                <button type="button" id="btnSearchTracking" class="btn btn-primary px-4">
+                                    <i class="bi bi-search me-1"></i> Track
+                                </button>
+                            </div>
+
+                            <!-- Quick Badges of citizen's recent submissions -->
+                            <div id="myRecentComplaintChips" class="d-flex flex-wrap align-items-center"></div>
+                        </div>
+
+                        <!-- Loading Spinner -->
+                        <div id="trackingLoadingSpinner" class="text-center py-5 d-none">
+                            <div class="spinner-border text-info" role="status"></div>
+                            <div class="text-white-50 mt-2">Fetching complaint status from Samaj Sewa database...</div>
+                        </div>
+
+                        <!-- Not Found Card -->
+                        <div id="trackingNotFoundCard" class="citizen-card p-4 text-center d-none">
+                            <i class="bi bi-question-circle fs-1 text-warning mb-2 d-block"></i>
+                            <h5 class="text-white">Complaint Not Found</h5>
+                            <p class="text-white-50 small mb-0">Please verify the Complaint ID and try again, or check your recent reports.</p>
+                        </div>
+
+                        <!-- Tracking Result Card -->
+                        <div id="trackingResultCard" class="citizen-card p-4 d-none">
+                            <div class="d-flex justify-content-between align-items-center border-bottom border-secondary pb-3 mb-3 flex-wrap gap-2">
+                                <div>
+                                    <span class="text-white-50 small">Complaint ID:</span>
+                                    <h4 id="trackResId" class="text-info font-monospace fw-bold mb-0">--</h4>
+                                </div>
+                                <div>
+                                    <span class="text-white-50 small d-block">Department:</span>
+                                    <span id="trackResDept" class="badge bg-warning-subtle text-warning border border-warning px-3 py-1">--</span>
+                                </div>
+                            </div>
+
+                            <!-- Stepper -->
+                            <div class="stepper-wrapper">
+                                <div class="step-item" id="step1">
+                                    <div class="step-circle"><i class="bi bi-check-lg"></i></div>
+                                    <div class="step-label">Submitted</div>
+                                </div>
+                                <div class="step-item" id="step2">
+                                    <div class="step-circle"><i class="bi bi-eye"></i></div>
+                                    <div class="step-label">Under Review</div>
+                                </div>
+                                <div class="step-item" id="step3">
+                                    <div class="step-circle"><i class="bi bi-gear-fill"></i></div>
+                                    <div class="step-label">In Progress</div>
+                                </div>
+                                <div class="step-item" id="step4">
+                                    <div class="step-circle"><i class="bi bi-patch-check-fill"></i></div>
+                                    <div class="step-label">Resolved</div>
+                                </div>
+                            </div>
+
+                            <div class="row g-3 border-top border-secondary pt-3 mt-2">
+                                <div class="col-md-6">
+                                    <small class="text-white-50 d-block">Citizen User ID</small>
+                                    <span id="trackResUser" class="text-white fw-semibold">--</span>
+                                </div>
+                                <div class="col-md-6">
+                                    <small class="text-white-50 d-block">Contact</small>
+                                    <span id="trackResContact" class="text-white fw-semibold">--</span>
+                                </div>
+                                <div class="col-md-6">
+                                    <small class="text-white-50 d-block">Category</small>
+                                    <span id="trackResCategory" class="text-white fw-semibold">--</span>
+                                </div>
+                                <div class="col-md-6">
+                                    <small class="text-white-50 d-block">Registered Timestamp</small>
+                                    <span id="trackResTimestamp" class="text-white fw-semibold">--</span>
+                                </div>
+                                <div class="col-12">
+                                    <small class="text-white-50 d-block">Problem Description</small>
+                                    <p id="trackResDesc" class="text-white-50 bg-dark p-2 rounded-3 border border-secondary mb-0"></p>
+                                </div>
+                                <div class="col-md-6">
+                                    <small class="text-white-50 d-block">Location Coordinates</small>
+                                    <span id="trackResLocation" class="text-white">--</span>
+                                </div>
+                                <div class="col-md-6">
+                                    <small class="text-white-50 d-block">AI Diagnostic Severity</small>
+                                    <span id="trackResAiSeverity" class="badge severity-pill-medium">--</span>
+                                </div>
+                                <div class="col-12">
+                                    <small class="text-white-50 d-block">AI Detected Issues</small>
+                                    <span id="trackResAiDetected" class="text-info fw-semibold">--</span>
+                                    <span class="text-white-50 small ms-2">(Confidence: <span id="trackResAiConfidence">--</span>)</span>
+                                </div>
+                                <div class="col-12 text-center mt-3">
+                                    <img id="trackResMediaImg" class="img-fluid rounded border border-secondary d-none" style="max-height: 220px;" alt="Attached Evidence">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- =====================================================
+             COMMUNITY TRANSPARENCY FEED
+        ===================================================== -->
+        <div class="mt-5">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-bold text-white mb-0">
+                    <i class="bi bi-activity text-info me-2"></i>Recent Community Grievances
+                </h5>
+                <span class="text-white-50 small">Real-time civic transparency</span>
+            </div>
+            <div id="communityFeedList" class="row g-3">
+                <div class="col-12 text-center py-3 text-muted">Loading recent grievances...</div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- =====================================================
+         SUCCESS MODAL
+    ===================================================== -->
+    <div class="modal fade" id="complaintSuccessModal" tabindex="-1" aria-labelledby="modalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content citizen-card border-primary">
+                <div class="modal-header border-bottom border-secondary">
+                    <h5 class="modal-title text-white d-flex align-items-center gap-2" id="modalLabel">
+                        <i class="bi bi-patch-check-fill text-success fs-4"></i> Complaint Registered Successfully!
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-center py-4">
+                    <p class="text-white-50 mb-2">Your civic grievance has been logged with Samaj Sewa.</p>
+                    
+                    <div class="bg-dark p-3 rounded-3 border border-info mb-3">
+                        <small class="text-white-50 d-block">Your Unique Tracking ID:</small>
+                        <h3 id="modalComplaintId" class="text-info font-monospace fw-bold my-1">SS-XXXXX</h3>
+                        <button type="button" id="btnCopyComplaintId" class="btn btn-outline-info btn-sm rounded-pill mt-2">
+                            <i class="bi bi-copy me-1"></i> Copy ID
+                        </button>
+                    </div>
+
+                    <div class="text-start bg-secondary-subtle p-3 rounded-3 mb-3 small">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="text-white-50">Timestamp:</span>
+                            <span id="modalTimestamp" class="text-white font-monospace">--</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="text-white-50">Routing Department:</span>
+                            <span id="modalDepartment" class="text-warning fw-semibold">--</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="text-white-50">Status:</span>
+                            <span id="modalStatus" class="badge bg-success-subtle text-success">Submitted</span>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <span class="text-white-50">AI Detection:</span>
+                            <span id="modalAiDetected" class="text-info">--</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-top border-secondary justify-content-center gap-2">
+                    <button type="button" id="btnTrackFromModal" class="btn btn-primary px-4">
+                        <i class="bi bi-search me-1"></i> Track This Complaint
+                    </button>
+                    <button type="button" class="btn btn-outline-light px-4" data-bs-dismiss="modal">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap Bundle JS -->
+    <script src="/static/lib/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Leaflet Map JS -->
+    <script src="/static/lib/js/leaflet.js"></script>
+
+    <!-- Citizen Portal Logic -->
+    <script src="/static/citizen.js"></script>
+</body>
+
+</html>
