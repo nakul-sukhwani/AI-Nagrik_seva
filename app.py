@@ -716,11 +716,11 @@ def index():
     """
     # If already logged in, redirect to respective dashboard
     if session.get('officer_logged_in'):
-        return redirect(url_for('dashboard_view'))
+        return redirect('/dashboard')
     elif session.get('worker_logged_in'):
-        return redirect(url_for('worker_dashboard_view'))
+        return redirect('/worker-dashboard')
     elif session.get('user_logged_in'):
-        return redirect(url_for('command_center'))
+        return redirect('/command-center')
     return render_template("login.html")
 
 
@@ -730,7 +730,7 @@ def command_center():
     Smart City Command Center (Citizen Input / AI Detection).
     """
     if not session.get('user_logged_in') and not session.get('officer_logged_in') and not session.get('worker_logged_in'):
-        return redirect(url_for('index'))
+        return redirect('/')
     stats = get_home_stats()
     return render_template("index.html", stats=stats)
 
@@ -975,7 +975,7 @@ def api_login_user():
 @app.route("/logout")
 def logout():
     session.clear()
-    return redirect(url_for("index"))
+    return redirect('/')
 
 
 # =====================================================
@@ -988,7 +988,7 @@ def worker_dashboard_view():
     Field Worker Dashboard Page.
     """
     if not session.get('worker_logged_in'):
-        return redirect(url_for('index'))
+        return redirect('/')
     return render_template("worker_dashboard.html")
 
 
@@ -1953,7 +1953,7 @@ def dashboard_view():
     Nagrik-Seva AI Admin / Officer Dashboard Page.
     """
     if not session.get('officer_logged_in'):
-        return redirect(url_for('index'))
+        return redirect('/')
     return render_template("dashboard.html")
 
 @app.route("/officer-profile")
@@ -1962,7 +1962,7 @@ def officer_profile_view():
     Dedicated Officer Profile Page.
     """
     if not session.get('officer_logged_in'):
-        return redirect(url_for('index'))
+        return redirect('/')
     return render_template("dashboard.html", active_tab="profile")
 
 @app.route("/api/officer/profile", methods=["GET"])
@@ -2284,7 +2284,7 @@ def worker_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'worker_db_id' not in session:
-            return redirect(url_for('worker_login', next=request.url))
+            return redirect('/worker/login')
         return f(*args, **kwargs)
     return decorated_function
 
@@ -2307,7 +2307,7 @@ def inject_worker():
 @app.route("/worker/login", methods=["GET", "POST"])
 def worker_login():
     if 'worker_db_id' in session:
-        return redirect(url_for('worker_dashboard'))
+        return redirect('/worker/dashboard')
     
     error = None
     if request.method == "POST":
@@ -2330,7 +2330,7 @@ def worker_login():
             next_url = request.args.get('next')
             if next_url and next_url.startswith('/worker/'):
                 return redirect(next_url)
-            return redirect(url_for('worker_dashboard'))
+            return redirect('/worker/dashboard')
         else:
             error = "Invalid Worker ID or Password. Please check your credentials."
 
@@ -2342,7 +2342,7 @@ def worker_logout():
     session.pop('worker_id', None)
     session.pop('worker_name', None)
     session.pop('worker_dept', None)
-    return redirect(url_for('worker_login'))
+    return redirect('/worker/login')
 
 @app.route("/worker/dashboard")
 @worker_required
@@ -2463,12 +2463,12 @@ def worker_task_detail(task_id):
         if not task:
             conn.close()
             flash("Task not found.", "danger")
-            return redirect(url_for('worker_dashboard'))
+            return redirect('/worker/dashboard')
 
         if task['assigned_worker_id'] != worker['id']:
             conn.close()
             flash("Unauthorized task access.", "danger")
-            return redirect(url_for('worker_dashboard'))
+            return redirect('/worker/dashboard')
 
         cur.execute("SELECT * FROM repair_reports WHERE report_id = ?", (task_id,))
         repair_report = cur.fetchone()
@@ -2511,14 +2511,14 @@ def worker_start_task(task_id):
     if not row or row[0] != worker['id']:
         conn.close()
         flash("Unauthorized task action.", "danger")
-        return redirect(url_for('worker_dashboard'))
+        return redirect('/worker/dashboard')
 
     cur.execute("UPDATE reports SET status = 'IN_PROGRESS' WHERE id = ?", (task_id,))
     conn.commit()
     conn.close()
 
     flash("Task started! Status changed to IN_PROGRESS.", "info")
-    return redirect(url_for('worker_task_detail', task_id=task_id))
+    return redirect(f'/worker/task/{task_id}')
 
 @app.route("/worker/task/<int:task_id>/repair-report", methods=["POST"])
 @worker_required
@@ -2534,7 +2534,7 @@ def worker_submit_repair(task_id):
         if not row or row[0] != worker['id']:
             conn.close()
             flash("Unauthorized task action.", "danger")
-            return redirect(url_for('worker_dashboard'))
+            return redirect('/worker/dashboard')
 
         after_image_rel_path = None
         
@@ -2546,7 +2546,7 @@ def worker_submit_repair(task_id):
             if ext not in ['.jpg', '.jpeg', '.png', '.webp']:
                 conn.close()
                 flash("Invalid file format. Please upload JPG, PNG, or WEBP.", "warning")
-                return redirect(url_for('worker_task_detail', task_id=task_id))
+                return redirect(f'/worker/task/{task_id}')
             
             filename = f"after_{task_id}_{int(time.time())}{ext}"
             if supabase_client.IS_SUPABASE_ACTIVE:
@@ -2557,7 +2557,7 @@ def worker_submit_repair(task_id):
                     error_logger.error(f"Error uploading repair image: {e}")
                     conn.close()
                     flash("Cloud storage upload failed. Please try again.", "danger")
-                    return redirect(url_for('worker_task_detail', task_id=task_id))
+                    return redirect(f'/worker/task/{task_id}')
             else:
                 save_path = REPAIRS_DIR / filename
                 file.save(save_path)
@@ -2577,7 +2577,7 @@ def worker_submit_repair(task_id):
                         error_logger.error(f"Error uploading repair image base64: {e}")
                         conn.close()
                         flash("Cloud storage upload failed. Please try again.", "danger")
-                        return redirect(url_for('worker_task_detail', task_id=task_id))
+                        return redirect(f'/worker/task/{task_id}')
                 else:
                     save_path = REPAIRS_DIR / filename
                     with open(save_path, "wb") as fh:
@@ -2589,7 +2589,7 @@ def worker_submit_repair(task_id):
         if not after_image_rel_path:
             conn.close()
             flash("After-Repair Image is mandatory to complete and submit a repair report.", "danger")
-            return redirect(url_for('worker_task_detail', task_id=task_id))
+            return redirect(f'/worker/task/{task_id}')
 
         problems_faced = request.form.get("problems_faced", "").strip()
         tools_used = request.form.get("tools_used", "").strip()
@@ -2618,7 +2618,7 @@ def worker_submit_repair(task_id):
         conn.close()
 
         flash("Repair Report successfully submitted! Status moved to Pending Verification.", "success")
-        return redirect(url_for('worker_task_detail', task_id=task_id))
+        return redirect(f'/worker/task/{task_id}')
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
