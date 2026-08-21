@@ -52,46 +52,95 @@ def _parse_json(raw):
     except json.JSONDecodeError:
         return None
 
-def enrich_citizen_complaint(category, description, ai_detected, ai_confidence, landmark="", latitude=None, longitude=None):
+def analyze_civic_issue(category, description, ai_detected, ai_confidence, landmark="", latitude=None, longitude=None):
     system_prompt = (
-        "You are an AI assistant for a Municipal Smart City Grievance System in Lucknow, India. "
-        "Analyze civic complaints and produce structured metadata to help officers prioritize and route them. "
-        "Always respond with valid JSON only. No markdown, no extra text."
+        "You are a highly strict and objective Municipal Infrastructure Analyst for the 'AI Nagrik' platform.\n"
+        "Your job is to analyze the provided image/description of a civic issue and return ONLY a valid JSON object. "
+        "Do not hallucinate or guess; rely strictly on visual evidence provided in the text.\n\n"
+        "Rules:\n"
+        "1. 'Critical' severity is only for immediate threats to life (open deep manholes, live wires, massive sinkholes).\n"
+        "2. 'Scale: Major' means it affects a large area or community; 'Minor' means it's a localized small issue.\n"
+        "3. If the image/description is not a civic issue, set is_valid_civic_issue to false and ignore other fields."
     )
     loc = f"Location: {landmark}" if landmark else (f"GPS: {latitude:.4f}N, {longitude:.4f}E" if latitude else "Location: Lucknow")
-    user_prompt = f"""Civic complaint:
+    user_prompt = f"""Civic complaint details (from YOLO & Citizen):
 Category: {category}
 AI Detection: {ai_detected} (Confidence: {ai_confidence:.1f}%)
 {loc}
 Description: {description}
 
-Return JSON:
-{{"priority":"P0 - Critical"|"P1 - High"|"P2 - Normal"|"P3 - Low","estimated_resolution_days":<int>,"recommended_department":"<dept>","officer_summary":"<2-3 sentence summary>","citizen_message":"<1-2 sentence friendly message>","tags":["<tag>"],"escalation_required":true|false}}
-
-Priority: P0=safety hazard, P1=high impact, P2=standard, P3=minor. JSON only."""
-    result = _parse_json(_call_nim(system_prompt, user_prompt, 512))
+Return ONLY valid JSON matching this schema:
+{{
+  "is_valid_civic_issue": boolean,
+  "rejection_reason": "String or null",
+  "issue_type": "Road Damage | Water Leakage | Garbage Dump | Streetlight | Drainage | Other",
+  "assigned_department": "PWD | Sanitation | Water & Sewage | Electricity | Municipal Admin",
+  "severity_level": "Low | Medium | High | Critical",
+  "scale": "Major" | "Minor",
+  "impact_assessment": {{
+    "estimated_affected_people": "Range",
+    "impact_reasoning": "Short logic"
+  }},
+  "required_action": {{
+    "materials_needed": ["list"],
+    "manpower_estimate": "string"
+  }}
+}}
+"""
+    result = _parse_json(_call_nim(system_prompt, user_prompt, 700))
     if result:
         return result
-    dept = "Roads Department" if "road" in category.lower() or "pothole" in category.lower() else "Department of Environment" if "garbage" in category.lower() else "Civic Grievance Cell"
-    return {"priority":"P2 - Normal","estimated_resolution_days":7,"recommended_department":dept,"officer_summary":f"Citizen-reported {category} issue with {ai_confidence:.0f}% AI confidence. Requires field inspection.","citizen_message":"Your complaint is registered and will be reviewed within 24 hours. Thank you!","tags":[category.lower().replace(' ','-')],"escalation_required":ai_confidence>85}
+    return {
+        "is_valid_civic_issue": True,
+        "rejection_reason": None,
+        "issue_type": "Other",
+        "assigned_department": "Municipal Admin",
+        "severity_level": "Medium",
+        "scale": "Minor",
+        "impact_assessment": {"estimated_affected_people": "10-50", "impact_reasoning": "Unable to determine accurately"},
+        "required_action": {"materials_needed": ["Inspection Required"], "manpower_estimate": "1-2"}
+    }
 
 def verify_repair_completion(before_description, after_description, worker_notes="", category="Road Repair"):
     system_prompt = (
-        "You are a municipal quality-control AI inspector for the Lucknow Smart City platform. "
-        "Evaluate if a field worker's repair is satisfactorily completed. Respond with valid JSON only."
+        "You are a strict Quality Assurance Auditor for public works. "
+        "Compare Original Problem and Claimed Solution to verify if the worker actually fixed the issue.\n"
+        "Rules:\n"
+        "1. If the background landmarks don't match, set same_location to false and action to REJECT.\n"
+        "2. If temporary/lazy work is done (e.g., putting loose mud in a pothole instead of tar), mark work_quality as Substandard and action as REJECT.\n"
+        "Return ONLY a valid JSON object."
     )
     user_prompt = f"""Evaluate repair:
 Category: {category}
-Before: {before_description}
-After: {after_description}
+Original Problem (Image 1 description): {before_description}
+Claimed Solution (Image 2 description): {after_description}
 Worker Notes: {worker_notes or 'None'}
 
-Return JSON:
-{{"verification_status":"Approved"|"Needs Re-work"|"Partial Completion","confidence_percent":<0-100>,"officer_recommendation":"<recommendation>","quality_score":<1-10>,"issues_found":[],"approved":true|false}}
-
-Approved=quality>=7, Partial=4-6, Needs Re-work=<4. JSON only."""
-    result = _parse_json(_call_nim(system_prompt, user_prompt, 384))
-    return result or {"verification_status":"Pending Manual Review","confidence_percent":0,"officer_recommendation":"AI verification unavailable. Please manually inspect.","quality_score":0,"issues_found":[],"approved":False}
+Return JSON matching this schema:
+{{
+  "is_work_completed": boolean,
+  "verification_confidence": number,
+  "match_analysis": {{
+    "same_location": boolean,
+    "landmarks_matched": ["list"],
+    "tampering_suspected": boolean
+  }},
+  "work_quality": "Good | Substandard | Incomplete",
+  "action": "APPROVE | REJECT | MANUAL_INSPECTION",
+  "auditor_remarks": "1-2 lines explaining the decision"
+}}
+"""
+    result = _parse_json(_call_nim(system_prompt, user_prompt, 500))
+    if result:
+        return result
+    return {
+        "is_work_completed": False, 
+        "verification_confidence": 0, 
+        "match_analysis": {"same_location": False, "landmarks_matched": [], "tampering_suspected": False}, 
+        "work_quality": "Incomplete", 
+        "action": "MANUAL_INSPECTION", 
+        "auditor_remarks": "AI verification unavailable. Please manually inspect."
+    }
 
 def generate_admin_summary(reports, officers=5, workers=20):
     today = datetime.now().strftime("%d %B %Y")
@@ -127,3 +176,14 @@ if IS_NVIDIA_ACTIVE:
     print(f"[OK] NVIDIA NIM AI is ACTIVE (Model: {NIM_MODEL})")
 else:
     print("[WARN] NVIDIA_API_KEY not set — AI enrichment features disabled.")
+
+def enrich_citizen_complaint(category, description, ai_detected, ai_confidence, landmark, latitude, longitude):
+    return {
+        'citizen_message': 'Your complaint has been registered. Thank you!',
+        'escalation_required': False,
+        'estimated_resolution_days': 7,
+        'officer_summary': '',
+        'priority': 'P2 - Normal',
+        'tags': []
+    }
+

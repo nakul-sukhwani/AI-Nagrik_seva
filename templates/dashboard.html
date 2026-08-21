@@ -619,6 +619,26 @@
             });
         }
 
+        // Define custom colored marker logic
+        const URGENCY_COLORS = {
+            'Red': '#ef4444',
+            'Orange': '#f97316',
+            'Yellow': '#eab308',
+            'Green': '#22c55e'
+        };
+        
+        function getUrgencyIcon(urgencyColor, status) {
+            let hex = urgencyColor ? URGENCY_COLORS[urgencyColor] : (status === 'Resolved' ? '#22c55e' : (status === 'In Progress' ? '#f97316' : '#f59e0b'));
+            if (!hex) hex = '#3b82f6';
+            const svg = encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="28" height="38" viewBox="0 0 28 38"><path d="M14 0C6.268 0 0 6.268 0 14c0 9.916 14 24 14 24S28 23.916 28 14C28 6.268 21.732 0 14 0z" fill="${hex}"/><circle cx="14" cy="14" r="7" fill="white" fill-opacity="0.9"/></svg>`);
+            return L.icon({
+                iconUrl: `data:image/svg+xml,${svg}`,
+                iconSize: [28, 38],
+                iconAnchor: [14, 38],
+                popupAnchor: [0, -38]
+            });
+        }
+
         // 3. Leaflet Map Initialization (PDF Section 11)
         async function loadMapMarkers() {
             try {
@@ -639,7 +659,7 @@
                     const latLngs = [];
                     markers.forEach(m => {
                         if (m.latitude && m.longitude) {
-                            const marker = L.marker([m.latitude, m.longitude]).addTo(dashMap);
+                            const marker = L.marker([m.latitude, m.longitude], { icon: getUrgencyIcon(m.urgency_color, m.status) }).addTo(dashMap);
                             marker.bindPopup(`
                                 <div class="text-xs font-sans">
                                     <strong class="text-blue-700">${m.report_number}</strong><br/>
@@ -886,7 +906,7 @@
                 const latLngs = [];
                 (data.markers || []).forEach(m => {
                     if (m.latitude && m.longitude) {
-                        const marker = L.marker([m.latitude, m.longitude]).addTo(fullMap);
+                        const marker = L.marker([m.latitude, m.longitude], { icon: getUrgencyIcon(m.urgency_color, m.status) }).addTo(fullMap);
                         marker.bindPopup(`
                             <div class="text-xs font-sans">
                                 <strong class="text-blue-700">${m.report_number}</strong><br/>

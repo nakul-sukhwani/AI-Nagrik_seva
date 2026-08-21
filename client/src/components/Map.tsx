@@ -20,8 +20,15 @@ const STATUS_COLORS: Record<string, string> = {
   Resolved: '#22c55e',
 };
 
-function getStatusIcon(status: string) {
-  const color = STATUS_COLORS[status] || '#94a3b8';
+const URGENCY_COLORS: Record<string, string> = {
+  Red: '#ef4444',
+  Orange: '#f97316',
+  Yellow: '#eab308',
+  Green: '#22c55e',
+};
+
+function getStatusIcon(status: string, urgency_color?: string) {
+  const color = urgency_color ? URGENCY_COLORS[urgency_color] || '#94a3b8' : STATUS_COLORS[status] || '#94a3b8';
   const svg = encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="28" height="38" viewBox="0 0 28 38"><path d="M14 0C6.268 0 0 6.268 0 14c0 9.916 14 24 14 24S28 23.916 28 14C28 6.268 21.732 0 14 0z" fill="${color}"/><circle cx="14" cy="14" r="7" fill="white" fill-opacity="0.9"/></svg>`);
   return new L.Icon({
     iconUrl: `data:image/svg+xml,${svg}`,
@@ -39,6 +46,7 @@ interface MapPoint {
   status: string;
   zone_id: string;
   ward_id: string;
+  urgency_color?: string;
 }
 
 interface MapProps {
@@ -85,7 +93,7 @@ export default function Map({ points, selectedId, onMarkerClick }: MapProps) {
     markersRef.current = {};
 
     points.forEach(point => {
-      const marker = L.marker([point.lat, point.lng], { icon: getStatusIcon(point.status) })
+      const marker = L.marker([point.lat, point.lng], { icon: getStatusIcon(point.status, point.urgency_color) })
         .addTo(map)
         .bindPopup(`
           <div style="font-family:sans-serif;min-width:180px;">

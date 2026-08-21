@@ -19,6 +19,7 @@ import os
 import sys
 import sqlite3
 import json
+import math
 from functools import wraps
 import uuid
 import secrets
@@ -55,7 +56,7 @@ from dotenv import load_dotenv
 # =====================================================
 # THIRD-PARTY LIBRARIES
 # =====================================================
-from flask import Flask, redirect, render_template, request, jsonify, Response, send_file, session, url_for
+from flask import Flask, redirect, render_template, request, jsonify, Response, send_file, session, url_for, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 from ultralytics import YOLO
 from PIL import Image
@@ -75,9 +76,11 @@ BASE_DIR = Path(__file__).resolve().parent
 
 MODEL_PATH = BASE_DIR / "yolov8m.pt"
 DB_PATH = BASE_DIR / "reports.db"
-LOGS_DIR = BASE_DIR / "logs"
+LOGS_DIR = BASE_DIR / 'logs'
+REPAIRS_DIR = BASE_DIR / 'static' / 'repairs'
 
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
+REPAIRS_DIR.mkdir(parents=True, exist_ok=True)
 
 CONF_THRESHOLD = 0.25
 MAX_DET = 5
@@ -109,6 +112,7 @@ system_logger.info("Application configured and starting up.")
 # =====================================================
 
 app = Flask(__name__)
+app.config['DEBUG'] = True
 CORS(app, resources={r"/*": {"origins": "*"}})
 app.secret_key = os.environ.get("SECRET_KEY", "smart-city-secret-key-1234")
 
@@ -140,8 +144,19 @@ model = YOLO(str(MODEL_PATH))
 print("✅ Model loaded")
 
 # =====================================================
-# REVERSE GEOCODING UTILITY
+# REVERSE GEOCODING & SPATIAL UTILITIES
 # =====================================================
+
+def haversine_distance(lat1, lon1, lat2, lon2):
+    """Calculate the great circle distance in meters between two points on the earth."""
+    if lat1 is None or lon1 is None or lat2 is None or lon2 is None:
+        return float('inf')
+    R = 6371000  # Radius of earth in meters
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+    return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 def reverse_geocode(lat, lng):
     """
@@ -264,7 +279,15 @@ def init_db():
         ('zone_id', "TEXT DEFAULT 'Zone-4 (North)'"),
         ('ward_id', "TEXT DEFAULT 'Ward-12'"),
         ('assigned_officer_id', "INTEGER DEFAULT 1"),
-        ('updated_at', "TEXT DEFAULT NULL")
+        ('updated_at', "TEXT DEFAULT NULL"),
+        ('upvotes', "INTEGER DEFAULT 1"),
+        ('is_escalated', "BOOLEAN DEFAULT 0"),
+        ('materials_needed', "TEXT DEFAULT NULL"),
+        ('manpower_estimate', "TEXT DEFAULT NULL"),
+        ('impact_reasoning', "TEXT DEFAULT NULL"),
+        ('estimated_affected_people', "TEXT DEFAULT NULL"),
+        ('scale', "TEXT DEFAULT NULL"),
+        ('severity_level', "TEXT DEFAULT NULL")
     ]
 
     for col_name, col_def in new_cols:
@@ -896,6 +919,54 @@ def worker_dashboard_view():
     return render_template("worker_dashboard.html")
 
 
+def enrich_with_sla(reports):
+    from datetime import datetime
+    now = datetime.now()
+    
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    
+    for r in reports:
+        # Determine Color Code
+        sev = r.get("severity_level") or ""
+        severity_str = r.get("severity", "").lower()
+        if "critical" in sev.lower() or "critical" in severity_str:
+            r["urgency_color"] = "Red"
+        elif "high" in sev.lower() or "high" in severity_str:
+            r["urgency_color"] = "Orange"
+        elif "medium" in sev.lower() or "medium" in severity_str:
+            r["urgency_color"] = "Yellow"
+        else:
+            r["urgency_color"] = "Green"
+            
+        # Escalation Check
+        r["is_escalated_flag"] = bool(r.get("is_escalated", False))
+        if str(r.get("status")) not in ["Resolved", "Completed"] and (r["urgency_color"] == "Red" or "critical" in severity_str):
+            if r.get("created_at"):
+                try:
+                    # Handle possible different iso formats
+                    created_str = r["created_at"].replace("Z", "+00:00")
+                    created = datetime.fromisoformat(created_str)
+                    # For naive datetime
+                    if created.tzinfo is not None:
+                        now_aware = datetime.now(created.tzinfo)
+                        diff = (now_aware - created).total_seconds()
+                    else:
+                        diff = (now - created).total_seconds()
+                        
+                    if diff > 24 * 3600:
+                        r["is_escalated_flag"] = True
+                        r["urgency_color"] = "Red"
+                        if not r.get("is_escalated"):
+                            cur.execute("UPDATE reports SET is_escalated = 1 WHERE id = ?", (r["id"],))
+                except Exception as e:
+                    error_logger.error(f"SLA parsing error: {e}")
+                    
+    conn.commit()
+    conn.close()
+    return reports
+
+
 @app.route("/api/worker/reports", methods=["GET"])
 def api_worker_reports():
     """
@@ -912,12 +983,16 @@ def api_worker_reports():
 
     try:
         cur.execute("""
-            SELECT id, report_number, issue_type, severity, status, created_at, latitude, longitude, address, landmark, image_path, description
+            SELECT id, report_number, issue_type, severity, status, created_at, latitude, longitude, address, landmark, image_path, description, severity_level, is_escalated, upvotes
             FROM reports
             WHERE department = ?
             ORDER BY id DESC
         """, (dept,))
         reports = [dict(row) for row in cur.fetchall()]
+        
+        # Enrich with SLA
+        reports = enrich_with_sla(reports)
+        
         return jsonify({"status": "success", "reports": reports, "worker_name": session.get('name'), "department": dept})
     except Exception as e:
         error_logger.error(f"Worker reports fetch error: {str(e)}")
@@ -930,14 +1005,15 @@ def api_worker_reports():
 def api_update_report_status(report_id):
     """
     Update status of a report (Pending, In Progress, Resolved).
+    Includes Strict Anti-Fraud EXIF checks and AI QA Auditor for 'Resolved'.
     """
-    # Allow Next.js frontend to call this endpoint directly (session-less)
-    # Original session guard retained as comment for Flask-session-based clients
-    # if not session.get('officer_logged_in') and not session.get('worker_logged_in'):
-    #     return jsonify({"error": "Unauthorized"}), 401
-
-    data = request.get_json() or {}
-    new_status = data.get("status")
+    if request.is_json:
+        data = request.get_json() or {}
+        new_status = data.get("status")
+        worker_notes = data.get("notes", "")
+    else:
+        new_status = request.form.get("status")
+        worker_notes = request.form.get("notes", "")
 
     if new_status not in ["Pending", "In Progress", "Resolved"]:
         return jsonify({"error": "Invalid status value"}), 400
@@ -946,10 +1022,65 @@ def api_update_report_status(report_id):
     cur = conn.cursor()
 
     try:
-        # Check if report exists
-        cur.execute("SELECT id FROM reports WHERE id = ?", (report_id,))
-        if not cur.fetchone():
+        cur.execute("SELECT id, latitude, longitude, description, issue_type FROM reports WHERE id = ?", (report_id,))
+        report_data = cur.fetchone()
+        if not report_data:
             return jsonify({"error": "Report not found"}), 404
+
+        if new_status == "Resolved":
+            file = request.files.get("image")
+            if not file:
+                return jsonify({"error": "Proof image is required to resolve a ticket."}), 400
+            
+            image = Image.open(file.stream).convert("RGB")
+            
+            # Anti-Fraud: EXIF GPS Check
+            from PIL.ExifTags import TAGS, GPSTAGS
+            exif_data = image._getexif()
+            exif_lat, exif_lng = None, None
+            
+            if exif_data:
+                gps_info = {}
+                for tag, value in exif_data.items():
+                    decoded = TAGS.get(tag, tag)
+                    if decoded == "GPSInfo":
+                        for t in value:
+                            sub_decoded = GPSTAGS.get(t, t)
+                            gps_info[sub_decoded] = value[t]
+                
+                def get_decimal_from_dms(dms, ref):
+                    if not dms or len(dms) < 3: return None
+                    degrees = float(dms[0])
+                    minutes = float(dms[1])
+                    seconds = float(dms[2])
+                    dec = degrees + (minutes / 60.0) + (seconds / 3600.0)
+                    if ref in ['S', 'W']:
+                        dec = -dec
+                    return dec
+
+                if "GPSLatitude" in gps_info and "GPSLongitude" in gps_info:
+                    exif_lat = get_decimal_from_dms(gps_info["GPSLatitude"], gps_info.get("GPSLatitudeRef", "N"))
+                    exif_lng = get_decimal_from_dms(gps_info["GPSLongitude"], gps_info.get("GPSLongitudeRef", "E"))
+            
+            if not exif_lat or not exif_lng:
+                return jsonify({"error": "Anti-Fraud: No GPS EXIF data found. Live camera upload required."}), 400
+                
+            orig_lat, orig_lng = report_data[1], report_data[2]
+            dist = haversine_distance(orig_lat, orig_lng, exif_lat, exif_lng)
+            if dist > 100:
+                return jsonify({"error": f"Anti-Fraud: You are {dist:.0f}m away from the issue location. Must be < 100m."}), 400
+                
+            # AI QA Auditor Check
+            _, ai_summary, _, _, _, _ = run_inference(image)
+            after_desc = ", ".join(ai_summary.keys()) if ai_summary else "No issues detected"
+            before_desc = report_data[3] or "Civic Issue"
+            category = report_data[4] or "Civic Issue"
+            
+            import nvidia_client
+            if nvidia_client.IS_NVIDIA_ACTIVE:
+                qa_result = nvidia_client.verify_repair_completion(before_desc, after_desc, worker_notes, category)
+                if qa_result.get("action") == "REJECT":
+                    return jsonify({"error": "AI Auditor rejected the work: " + qa_result.get("auditor_remarks", "Substandard work.")}), 400
 
         cur.execute("""
             UPDATE reports 
@@ -1035,6 +1166,20 @@ def predict():
     # YOLO class names (e.g. "pothole", "garbage") are title-cased to match
     # the routing engine's lookup keys (e.g. "Pothole", "Garbage").
     primary_issue = next(iter(summary.keys()), "").strip().title() if summary else "Civic Issue"
+    
+    # ── Auto-Deduplication (Issue Clustering) ────────
+    if latitude is not None and longitude is not None:
+        cur.execute("SELECT id, latitude, longitude, issue_type, upvotes FROM reports WHERE status = 'Pending' AND datetime(created_at) >= datetime('now', '-1 day')")
+        recent_reports = cur.fetchall()
+        for r_id, r_lat, r_lng, r_issue_type, r_upvotes in recent_reports:
+            if primary_issue.lower() in (r_issue_type or "").lower():
+                if haversine_distance(latitude, longitude, r_lat, r_lng) <= 50:
+                    new_upvotes = (r_upvotes or 1) + 1
+                    cur.execute("UPDATE reports SET upvotes = ?, updated_at = datetime('now') WHERE id = ?", (new_upvotes, r_id))
+                    conn.commit()
+                    conn.close()
+                    return jsonify({"status": "success", "message": "Issue already reported. We added your report as an upvote (+1 Impact) to prioritize it.", "report_id": r_id, "upvotes": new_upvotes, "deduplicated": True}), 200
+
     routing_result = routing_engine.route_issue(
         primary_issue,
         lat=latitude,
@@ -1060,10 +1205,34 @@ def predict():
     description = f"Automated detection of {issue_type} in civic area ({routing_result['ward_name']}, {routing_result['zone_name']})."
     now_iso = datetime.now().isoformat()
 
+    # ── AI Analyst Enrichment ────────
+    analyst_result = {}
+    if nvidia_client.IS_NVIDIA_ACTIVE:
+        analyst_result = nvidia_client.analyze_civic_issue(
+            category=primary_issue,
+            description=description,
+            ai_detected=issue_type,
+            ai_confidence=avg_conf,
+            landmark=landmark,
+            latitude=latitude,
+            longitude=longitude
+        )
+    
+    # Extract analyst fields
+    materials_needed = json.dumps(analyst_result.get("required_action", {}).get("materials_needed", []))
+    manpower_estimate = analyst_result.get("required_action", {}).get("manpower_estimate", "Unknown")
+    estimated_affected = analyst_result.get("impact_assessment", {}).get("estimated_affected_people", "Unknown")
+    impact_reasoning = analyst_result.get("impact_assessment", {}).get("impact_reasoning", "Unknown")
+    scale = analyst_result.get("scale", "Minor")
+    strict_severity = analyst_result.get("severity_level", severity_level)
+    
+    # Default to LLM's department if it makes sense, or stick to routing engine
+    assigned_dept = analyst_result.get("assigned_department", department)
+
     cur.execute("""
         INSERT INTO reports
-        (image_path, summary, severity, latitude, longitude, created_at, type, department, avg_confidence, latency_ms, class_confidences, report_number, citizen_id, issue_type, description, status, address, landmark, zone_id, ward_id, assigned_officer_id, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (image_path, summary, severity, latitude, longitude, created_at, type, department, avg_confidence, latency_ms, class_confidences, report_number, citizen_id, issue_type, description, status, address, landmark, zone_id, ward_id, assigned_officer_id, updated_at, upvotes, is_escalated, materials_needed, manpower_estimate, impact_reasoning, estimated_affected_people, scale, severity_level)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         db_image_path,
         json.dumps(summary),
@@ -1072,7 +1241,7 @@ def predict():
         longitude,
         now_iso,
         'image',
-        department,
+        assigned_dept,
         avg_conf,
         int(latency_ms),
         json.dumps(class_confidences),
@@ -1086,7 +1255,15 @@ def predict():
         zone_id,
         ward_id,
         assigned_officer_fk,
-        now_iso
+        now_iso,
+        1,  # upvotes
+        0,  # is_escalated
+        materials_needed,
+        manpower_estimate,
+        impact_reasoning,
+        estimated_affected,
+        scale,
+        strict_severity
     ))
     new_report_id = cur.lastrowid
 
@@ -1751,6 +1928,18 @@ def api_dashboard_summary():
     """
     Fetch database-derived total report counts and metrics summary.
     """
+    # Update escalations based on SLA before generating summary
+    try:
+        temp_conn = sqlite3.connect(DB_PATH)
+        temp_conn.row_factory = sqlite3.Row
+        temp_cur = temp_conn.cursor()
+        temp_cur.execute("SELECT id, status, created_at, severity, severity_level, is_escalated FROM reports WHERE status != 'Resolved'")
+        open_reports = [dict(row) for row in temp_cur.fetchall()]
+        temp_conn.close()
+        enrich_with_sla(open_reports)
+    except Exception as e:
+        system_logger.error(f"SLA update error: {e}")
+
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
@@ -1912,7 +2101,7 @@ def api_reports_map():
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT id, report_number, issue_type, severity, status, created_at, latitude, longitude, address, landmark, image_path, zone_id, ward_id
+        SELECT id, report_number, issue_type, severity, status, created_at, latitude, longitude, address, landmark, image_path, zone_id, ward_id, severity_level, is_escalated
         FROM reports
         WHERE latitude IS NOT NULL AND longitude IS NOT NULL
     """)
@@ -1920,6 +2109,7 @@ def api_reports_map():
     conn.close()
 
     map_points = [dict(row) for row in rows]
+    map_points = enrich_with_sla(map_points)
     return jsonify({"markers": map_points})
 
 # =====================================================
@@ -2111,45 +2301,52 @@ def worker_tasks():
 @app.route("/worker/task/<int:task_id>")
 @worker_required
 def worker_task_detail(task_id):
-    worker = get_current_worker()
+    try:
+        worker = get_current_worker()
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
 
-    cur.execute("SELECT * FROM reports WHERE id = ?", (task_id,))
-    task = cur.fetchone()
+        cur.execute("SELECT * FROM reports WHERE id = ?", (task_id,))
+        task = cur.fetchone()
 
-    if not task:
+        if not task:
+            conn.close()
+            flash("Task not found.", "danger")
+            return redirect(url_for('worker_dashboard'))
+
+        if task['assigned_worker_id'] != worker['id']:
+            conn.close()
+            flash("Unauthorized task access.", "danger")
+            return redirect(url_for('worker_dashboard'))
+
+        cur.execute("SELECT * FROM repair_reports WHERE report_id = ?", (task_id,))
+        repair_report = cur.fetchone()
+
+        cur.execute("SELECT id, name, worker_id, designation FROM workers WHERE id != ? ORDER BY name ASC", (worker['id'],))
+        all_workers = cur.fetchall()
+
         conn.close()
-        flash("Task not found.", "danger")
-        return redirect(url_for('worker_dashboard'))
 
-    if task['assigned_worker_id'] != worker['id']:
-        conn.close()
-        flash("Unauthorized task access.", "danger")
-        return redirect(url_for('worker_dashboard'))
+        td = dict(task)
+        damage_types = []
+        if td.get('summary'):
+            try:
+                s_dict = json.loads(td['summary'])
+                for k, v in s_dict.items():
+                    damage_types.append(f"{k.capitalize()} ({v})")
+            except:
+                damage_types.append("Civic Issue")
+        td['damage_label'] = ", ".join(damage_types) if damage_types else "Civic Issue"
 
-    cur.execute("SELECT * FROM repair_reports WHERE report_id = ?", (task_id,))
-    repair_report = cur.fetchone()
-
-    cur.execute("SELECT id, name, worker_id, designation FROM workers WHERE id != ? ORDER BY name ASC", (worker['id'],))
-    all_workers = cur.fetchall()
-
-    conn.close()
-
-    td = dict(task)
-    damage_types = []
-    if td.get('summary'):
-        try:
-            s_dict = json.loads(td['summary'])
-            for k, v in s_dict.items():
-                damage_types.append(f"{k.capitalize()} ({v})")
-        except:
-            damage_types.append("Civic Issue")
-    td['damage_label'] = ", ".join(damage_types) if damage_types else "Civic Issue"
-
-    return render_template("worker_task_detail.html", worker=worker, task=td, repair_report=dict(repair_report) if repair_report else None, all_workers=all_workers)
+        return render_template("worker_task_detail.html", worker=worker, task=td, repair_report=dict(repair_report) if repair_report else None, all_workers=all_workers)
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        error_logger.error(f"CRITICAL in worker_task_detail({task_id}): {e}\n{tb}")
+        print(f"CRITICAL in worker_task_detail: {e}\n{tb}")
+        raise e
 
 @app.route("/worker/task/<int:task_id>/start", methods=["POST"])
 @worker_required
@@ -2176,89 +2373,108 @@ def worker_start_task(task_id):
 @app.route("/worker/task/<int:task_id>/repair-report", methods=["POST"])
 @worker_required
 def worker_submit_repair(task_id):
-    worker = get_current_worker()
+    try:
+        worker = get_current_worker()
 
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT assigned_worker_id FROM reports WHERE id = ?", (task_id,))
-    row = cur.fetchone()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT assigned_worker_id FROM reports WHERE id = ?", (task_id,))
+        row = cur.fetchone()
 
-    if not row or row[0] != worker['id']:
-        conn.close()
-        flash("Unauthorized task action.", "danger")
-        return redirect(url_for('worker_dashboard'))
-
-    after_image_rel_path = None
-    
-    file = request.files.get('after_image')
-    base64_data = request.form.get('after_image_base64')
-
-    if file and file.filename != '':
-        ext = Path(file.filename).suffix.lower()
-        if ext not in ['.jpg', '.jpeg', '.png', '.webp']:
+        if not row or row[0] != worker['id']:
             conn.close()
-            flash("Invalid file format. Please upload JPG, PNG, or WEBP.", "warning")
-            return redirect(url_for('worker_task_detail', task_id=task_id))
+            flash("Unauthorized task action.", "danger")
+            return redirect(url_for('worker_dashboard'))
+
+        after_image_rel_path = None
         
-        filename = f"after_{task_id}_{int(time.time())}{ext}"
-        if supabase_client.IS_SUPABASE_ACTIVE:
-            file_bytes = file.read()
-            after_image_rel_path = supabase_client.upload_image_to_supabase(file_bytes, filename, bucket_name="reports")
-        else:
-            save_path = REPAIRS_DIR / filename
-            file.save(save_path)
-            after_image_rel_path = f"/static/repairs/{filename}"
-    elif base64_data and 'data:image' in base64_data:
-        try:
-            format_part, imgstr = base64_data.split(';base64,')
-            ext = "." + format_part.split('/')[1].split('+')[0]
+        file = request.files.get('after_image')
+        base64_data = request.form.get('after_image_base64')
+
+        if file and file.filename != '':
+            ext = Path(file.filename).suffix.lower()
             if ext not in ['.jpg', '.jpeg', '.png', '.webp']:
-                ext = '.jpg'
+                conn.close()
+                flash("Invalid file format. Please upload JPG, PNG, or WEBP.", "warning")
+                return redirect(url_for('worker_task_detail', task_id=task_id))
+            
             filename = f"after_{task_id}_{int(time.time())}{ext}"
-            file_bytes = base64.b64decode(imgstr)
             if supabase_client.IS_SUPABASE_ACTIVE:
-                after_image_rel_path = supabase_client.upload_image_to_supabase(file_bytes, filename, bucket_name="reports")
+                file_bytes = file.read()
+                try:
+                    after_image_rel_path = supabase_client.upload_image_to_supabase(file_bytes, filename, bucket_name="reports")
+                except Exception as e:
+                    error_logger.error(f"Error uploading repair image: {e}")
+                    conn.close()
+                    flash("Cloud storage upload failed. Please try again.", "danger")
+                    return redirect(url_for('worker_task_detail', task_id=task_id))
             else:
                 save_path = REPAIRS_DIR / filename
-                with open(save_path, "wb") as fh:
-                    fh.write(file_bytes)
+                file.save(save_path)
                 after_image_rel_path = f"/static/repairs/{filename}"
-        except Exception as e:
-            error_logger.error(f"Camera base64 image decoding failed: {e}")
+        elif base64_data and 'data:image' in base64_data:
+            try:
+                format_part, imgstr = base64_data.split(';base64,')
+                ext = "." + format_part.split('/')[1].split('+')[0]
+                if ext not in ['.jpg', '.jpeg', '.png', '.webp']:
+                    ext = '.jpg'
+                filename = f"after_{task_id}_{int(time.time())}{ext}"
+                file_bytes = base64.b64decode(imgstr)
+                if supabase_client.IS_SUPABASE_ACTIVE:
+                    try:
+                        after_image_rel_path = supabase_client.upload_image_to_supabase(file_bytes, filename, bucket_name="reports")
+                    except Exception as e:
+                        error_logger.error(f"Error uploading repair image base64: {e}")
+                        conn.close()
+                        flash("Cloud storage upload failed. Please try again.", "danger")
+                        return redirect(url_for('worker_task_detail', task_id=task_id))
+                else:
+                    save_path = REPAIRS_DIR / filename
+                    with open(save_path, "wb") as fh:
+                        fh.write(file_bytes)
+                    after_image_rel_path = f"/static/repairs/{filename}"
+            except Exception as e:
+                error_logger.error(f"Camera base64 image decoding failed: {e}")
 
-    if not after_image_rel_path:
+        if not after_image_rel_path:
+            conn.close()
+            flash("After-Repair Image is mandatory to complete and submit a repair report.", "danger")
+            return redirect(url_for('worker_task_detail', task_id=task_id))
+
+        problems_faced = request.form.get("problems_faced", "").strip()
+        tools_used = request.form.get("tools_used", "").strip()
+        team_members = request.form.get("team_members", "").strip()
+        worker_remarks = request.form.get("worker_remarks", "").strip()
+        submitted_at = datetime.now().isoformat()
+
+        cur.execute("SELECT id FROM repair_reports WHERE report_id = ?", (task_id,))
+        existing = cur.fetchone()
+
+        if existing:
+            cur.execute("""
+                UPDATE repair_reports
+                SET after_image_path = ?, problems_faced = ?, tools_used = ?, team_members = ?, worker_remarks = ?, submitted_at = ?
+                WHERE report_id = ?
+            """, (after_image_rel_path, problems_faced, tools_used, team_members, worker_remarks, submitted_at, task_id))
+        else:
+            cur.execute("""
+                INSERT INTO repair_reports (report_id, worker_id, after_image_path, problems_faced, tools_used, team_members, worker_remarks, submitted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (task_id, worker['id'], after_image_rel_path, problems_faced, tools_used, team_members, worker_remarks, submitted_at))
+
+        cur.execute("UPDATE reports SET status = 'PENDING_VERIFICATION' WHERE id = ?", (task_id,))
+
+        conn.commit()
         conn.close()
-        flash("After-Repair Image is mandatory to complete and submit a repair report.", "danger")
+
+        flash("Repair Report successfully submitted! Status moved to Pending Verification.", "success")
         return redirect(url_for('worker_task_detail', task_id=task_id))
-
-    problems_faced = request.form.get("problems_faced", "").strip()
-    tools_used = request.form.get("tools_used", "").strip()
-    team_members = request.form.get("team_members", "").strip()
-    worker_remarks = request.form.get("worker_remarks", "").strip()
-    submitted_at = datetime.now().isoformat()
-
-    cur.execute("SELECT id FROM repair_reports WHERE report_id = ?", (task_id,))
-    existing = cur.fetchone()
-
-    if existing:
-        cur.execute("""
-            UPDATE repair_reports
-            SET after_image_path = ?, problems_faced = ?, tools_used = ?, team_members = ?, worker_remarks = ?, submitted_at = ?
-            WHERE report_id = ?
-        """, (after_image_rel_path, problems_faced, tools_used, team_members, worker_remarks, submitted_at, task_id))
-    else:
-        cur.execute("""
-            INSERT INTO repair_reports (report_id, worker_id, after_image_path, problems_faced, tools_used, team_members, worker_remarks, submitted_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (task_id, worker['id'], after_image_rel_path, problems_faced, tools_used, team_members, worker_remarks, submitted_at))
-
-    cur.execute("UPDATE reports SET status = 'PENDING_VERIFICATION' WHERE id = ?", (task_id,))
-
-    conn.commit()
-    conn.close()
-
-    flash("Repair Report successfully submitted! Status moved to Pending Verification.", "success")
-    return redirect(url_for('worker_task_detail', task_id=task_id))
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        error_logger.error(f"CRITICAL in worker_submit_repair({task_id}): {e}\n{tb}")
+        print(f"CRITICAL in worker_submit_repair: {e}\n{tb}")
+        raise e
 
 @app.route("/worker/profile")
 @worker_required
@@ -2554,6 +2770,10 @@ def api_citizen_report():
                 department = ai_enrichment["recommended_department"]
         except Exception as e:
             error_logger.error(f"NVIDIA NIM enrichment failed: {e}")
+
+    # Ensure paths are not None for DB constraints
+    image_path = image_path or ""
+    video_path = video_path or ""
 
     # Save into SQLite database
     conn = sqlite3.connect(DB_PATH)

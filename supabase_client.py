@@ -44,7 +44,9 @@ else:
 # Supports index access: row[0], and name-based access: row['id'].
 # =====================================================
 
-class RowWrapper:
+from collections.abc import Mapping
+
+class RowWrapper(Mapping):
     def __init__(self, data, description):
         self._data = data  # tuple of values
         # Map column name to index
@@ -53,6 +55,12 @@ class RowWrapper:
 
     def keys(self):
         return self._keys
+
+    def values(self):
+        return [self[k] for k in self._keys]
+
+    def items(self):
+        return [(k, self[k]) for k in self._keys]
 
     def __getitem__(self, key):
         if isinstance(key, int):
@@ -69,13 +77,15 @@ class RowWrapper:
         except KeyError:
             return default
 
+    def __len__(self):
+        return len(self._keys)
+
+    def __iter__(self):
+        return iter(self._keys)
+
     def __repr__(self):
         d = {k: self[k] for k in self._keys}
         return f"<RowWrapper {d}>"
-
-    # Support conversion to dict
-    def __iter__(self):
-        return iter(self._data)
 
 
 # =====================================================
@@ -222,4 +232,4 @@ def upload_image_to_supabase(file_bytes: bytes, filename: str, bucket_name: str 
         return f"supabase/{bucket_name}/{filename}"
     except Exception as e:
         print(f"Supabase storage upload failed: {e}")
-        raise e
+        return None
