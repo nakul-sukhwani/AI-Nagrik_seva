@@ -845,7 +845,7 @@ def api_login_officer():
         session['email'] = email
         session['department'] = dept
         
-        return jsonify({"status": "success", "redirect": url_for("dashboard_view")})
+        return jsonify({"status": "success", "redirect": "/dashboard"})
     except Exception as e:
         error_logger.error(f"Officer login error: {str(e)}")
         return jsonify({"error": "Authentication server error"}), 500
@@ -969,7 +969,7 @@ def api_login_user():
     session['name'] = name
     session['citizen_id'] = f"CIT-{random.randint(1000, 9999)}"
 
-    return jsonify({"status": "success", "redirect": url_for("command_center")})
+    return jsonify({"status": "success", "redirect": "/command-center"})
 
 
 @app.route("/logout")
