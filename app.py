@@ -508,6 +508,38 @@ def api_home_stats():
     stats = get_home_stats()
     return jsonify(stats)
 
+
+@app.route("/api/healthz", methods=["GET"])
+def api_healthz():
+    """
+    Debug health check endpoint — exposes environment and DB status.
+    """
+    import traceback
+    import tempfile
+    result = {
+        "status": "ok",
+        "supabase_active": supabase_client.IS_SUPABASE_ACTIVE,
+        "supabase_url_set": bool(os.environ.get("SUPABASE_URL")),
+        "supabase_db_url_set": bool(os.environ.get("SUPABASE_DB_URL")),
+        "db_path": str(DB_PATH),
+        "db_exists": DB_PATH.exists(),
+        "tmp_dir": tempfile.gettempdir(),
+        "db_test": None,
+        "db_error": None,
+    }
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM officers")
+        count = cur.fetchone()
+        result["db_test"] = f"officers count: {count[0] if count else 'N/A'}"
+        conn.close()
+    except Exception as e:
+        result["db_test"] = "FAILED"
+        result["db_error"] = traceback.format_exc()
+        result["status"] = "error"
+    return jsonify(result)
+
 # =====================================================
 # PERFORMANCE PAGE
 # =====================================================
