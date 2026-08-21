@@ -351,6 +351,23 @@
 
         // --- SUBMITS ---
 
+        async function parseResponse(res) {
+            const text = await res.text();
+            let data = null;
+            try {
+                data = JSON.parse(text);
+            } catch (e) {
+                if (!res.ok) {
+                    throw new Error(`Server returned ${res.status}: ${text.slice(0, 100)}`);
+                }
+                throw new Error('Invalid JSON format from server.');
+            }
+            if (!res.ok) {
+                throw new Error(data && data.error ? data.error : 'Operation failed');
+            }
+            return data;
+        }
+
         async function handleOfficerLogin(e) {
             e.preventDefault();
             hideAlerts();
@@ -363,9 +380,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ officer_id, password })
                 });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Authentication failed');
-                window.location.href = data.redirect;
+                const data = await parseResponse(res);
+                window.location.href = data.redirect || '/dashboard';
             } catch (err) {
                 showError(err.message);
             }
@@ -386,8 +402,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name, email, designation, department, password })
                 });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Setup failed');
+                const data = await parseResponse(res);
                 
                 // Show Success Modal
                 document.getElementById('modal-generated-id').innerText = data.officer_id;
@@ -410,9 +425,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ worker_id, password })
                 });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Authentication failed');
-                window.location.href = data.redirect;
+                const data = await parseResponse(res);
+                window.location.href = data.redirect || '/worker/dashboard';
             } catch (err) {
                 showError(err.message);
             }
@@ -432,8 +446,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name, email, department, password })
                 });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Setup failed');
+                const data = await parseResponse(res);
                 
                 // Show Success Modal
                 document.getElementById('modal-generated-id').innerText = data.worker_id;
