@@ -1021,8 +1021,8 @@ def api_worker_reports():
         conn.close()
 
 
-@app.route("/api/reports/<int:report_id>/status", methods=["POST"])
-def api_update_report_status(report_id):
+@app.route("/api/worker/legacy-resolve/<int:report_id>", methods=["POST"])
+def api_worker_legacy_resolve(report_id):
     """
     Update status of a report (Pending, In Progress, Resolved).
     Includes Strict Anti-Fraud EXIF checks and AI QA Auditor for 'Resolved'.
@@ -2044,16 +2044,18 @@ def api_reports():
 @app.route("/api/reports/<int:report_id>", methods=["GET"])
 def api_report_detail(report_id):
     """
-    Fetch full detail view for a specific civic report.
+    Fetch full detail view for a specific civic report including worker repair submission.
     """
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT r.*, o.name as assigned_officer_name, o.designation as assigned_officer_designation, o.email as assigned_officer_email
+        SELECT r.*, o.name as assigned_officer_name, o.designation as assigned_officer_designation, o.email as assigned_officer_email,
+               w.name as assigned_worker_name, w.worker_id as assigned_worker_code, w.department as assigned_worker_dept
         FROM reports r
         LEFT JOIN officers o ON r.assigned_officer_id = o.id
+        LEFT JOIN workers w ON r.assigned_worker_id = w.id
         WHERE r.id = ?
     """, (report_id,))
     report = cur.fetchone()
@@ -2062,25 +2064,51 @@ def api_report_detail(report_id):
         conn.close()
         return jsonify({"error": "Report not found"}), 404
 
-    report_dict = dict(report)
+    report_dict = dict(report.items()) if hasattr(report, 'items') else dict(report)
 
-    # Fetch report images
+    # Fetch report images (citizen incident images)
     cur.execute("""
         SELECT id, storage_path, public_or_signed_url, file_name, mime_type, file_size, latitude, longitude, captured_at, uploaded_at
         FROM report_images
         WHERE report_id = ?
     """, (report_id,))
-    images = [dict(img) for img in cur.fetchall()]
+    raw_images = cur.fetchall()
+    images = [dict(img.items()) if hasattr(img, 'items') else dict(img) for img in raw_images]
 
+    # Fetch worker repair report (after repair submission)
+    cur.execute("""
+        SELECT rr.*, w.name as worker_name, w.worker_id as worker_code, w.department as worker_department
+        FROM repair_reports rr
+        LEFT JOIN workers w ON rr.worker_id = w.id
+        WHERE rr.report_id = ?
+        ORDER BY rr.id DESC LIMIT 1
+    """, (report_id,))
+    repair_row = cur.fetchone()
     conn.close()
+
+    if repair_row:
+        rep_data = dict(repair_row.items()) if hasattr(repair_row, 'items') else dict(repair_row)
+        after_img = rep_data.get("after_image_path")
+        if after_img:
+            if after_img.startswith("http://") or after_img.startswith("https://"):
+                rep_data["after_image_url"] = after_img
+            elif after_img.startswith("/"):
+                rep_data["after_image_url"] = after_img
+            else:
+                rep_data["after_image_url"] = "/" + after_img
+        report_dict["repair_report"] = rep_data
+    else:
+        report_dict["repair_report"] = None
 
     # Fallback to main image_path if no report_images entries
     if not images and report_dict.get("image_path"):
+        main_path = str(report_dict["image_path"])
+        main_url = main_path if (main_path.startswith("http://") or main_path.startswith("https://")) else (main_path if main_path.startswith("/") else "/" + main_path)
         images = [{
             "id": 1,
-            "storage_path": report_dict["image_path"],
-            "public_or_signed_url": f"/{report_dict['image_path']}",
-            "file_name": os.path.basename(report_dict["image_path"]),
+            "storage_path": main_path,
+            "public_or_signed_url": main_url,
+            "file_name": os.path.basename(main_path),
             "mime_type": "image/png",
             "file_size": 102400,
             "latitude": report_dict.get("latitude"),
@@ -2091,6 +2119,54 @@ def api_report_detail(report_id):
 
     report_dict["images"] = images
     return jsonify(report_dict)
+
+@app.route("/api/reports/<int:report_id>/status", methods=["POST"])
+def api_update_report_status(report_id):
+    """
+    Allow Officer / Admin to update report status (e.g. RESOLVED, IN_PROGRESS, REJECTED, ASSIGNED).
+    """
+    data = request.get_json(silent=True) or {}
+    new_status = data.get("status")
+    officer_notes = data.get("notes", "")
+
+    if not new_status:
+        return jsonify({"error": "Status is required"}), 400
+
+    valid_statuses = ["PENDING", "ASSIGNED", "IN_PROGRESS", "PENDING_VERIFICATION", "RESOLVED", "REJECTED", "REOPENED"]
+    if new_status.upper() not in valid_statuses:
+        return jsonify({"error": f"Invalid status. Must be one of {valid_statuses}"}), 400
+
+    now_iso = datetime.now().isoformat()
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT id, status FROM reports WHERE id = ?", (report_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "Report not found"}), 404
+
+    cur.execute("UPDATE reports SET status = ?, updated_at = ? WHERE id = ?", (new_status.upper(), now_iso, report_id))
+    
+    if officer_notes:
+        try:
+            cur.execute("""
+                UPDATE repair_reports 
+                SET worker_remarks = COALESCE(worker_remarks, '') || ' | Officer Note: ' || ? 
+                WHERE report_id = ?
+            """, (officer_notes, report_id))
+        except Exception:
+            pass
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "status": "success",
+        "message": f"Report #{report_id} status updated to {new_status.upper()}",
+        "new_status": new_status.upper(),
+        "updated_at": now_iso
+    })
 
 @app.route("/api/reports/<int:report_id>/images", methods=["GET"])
 def api_report_images(report_id):
@@ -2136,7 +2212,7 @@ def api_reports_map():
 # SUPABASE STORAGE REDIRECT ROUTE
 # =====================================================
 
-@app.route("/supabase/<bucket_name>/<filename>")
+@app.route("/supabase/<bucket_name>/<path:filename>")
 def serve_supabase_file(bucket_name, filename):
     """
     Redirects requests for Supabase Storage objects to their public CDN URL.
@@ -3169,21 +3245,44 @@ def api_worker_submit_repair(task_id):
 # NVIDIA NIM AI ENDPOINTS
 # =====================================================
 
-@app.route("/api/ai/verify-repair/<int:task_id>", methods=["POST"])
+@app.route("/api/ai/verify-repair/<int:task_id>", methods=["POST", "GET"])
 def api_ai_verify_repair(task_id):
     """
-    AI-powered Before/After repair verification.
-    Worker calls this after submitting a repair photo.
-    Returns: verification_status, quality_score, officer_recommendation, approved
+    AI-powered Before/After repair verification using NVIDIA NIM AI.
+    Returns: verification analysis, confidence score, landmarks matched, quality assessment, and recommendation.
     """
     if not nvidia_client.IS_NVIDIA_ACTIVE:
         return jsonify({"error": "NVIDIA NIM AI is not configured"}), 503
 
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM reports WHERE id = ?", (task_id,))
+    report_row = cur.fetchone()
+    
+    cur.execute("""
+        SELECT rr.*, w.name as worker_name 
+        FROM repair_reports rr 
+        LEFT JOIN workers w ON rr.worker_id = w.id 
+        WHERE rr.report_id = ? 
+        ORDER BY rr.id DESC LIMIT 1
+    """, (task_id,))
+    repair_row = cur.fetchone()
+    conn.close()
+
+    report = dict(report_row.items()) if (report_row and hasattr(report_row, 'items')) else (dict(report_row) if report_row else {})
+    repair = dict(repair_row.items()) if (repair_row and hasattr(repair_row, 'items')) else (dict(repair_row) if repair_row else {})
+
     data = request.get_json(silent=True) or {}
-    before_desc = data.get("before_description", "Civic infrastructure issue reported by citizen")
-    after_desc = data.get("after_description", "Worker submitted after-repair photo")
-    worker_notes = data.get("worker_notes", "")
-    category = data.get("category", "Road Repair")
+    before_desc = data.get("before_description") or report.get("description") or f"Civic issue: {report.get('issue_type', 'Damage')} at {report.get('address') or report.get('landmark', 'city area')} (Severity: {report.get('severity', 'Medium')})"
+    
+    if repair:
+        after_desc = data.get("after_description") or f"Worker {repair.get('worker_name', '')} completed repair work. Tools used: {repair.get('tools_used', 'standard equipment')}. Problems faced: {repair.get('problems_faced', 'none')}. Remarks: {repair.get('worker_remarks', 'Repairs completed and site cleared.')}"
+        worker_notes = repair.get("worker_remarks") or data.get("worker_notes", "")
+    else:
+        after_desc = data.get("after_description") or "Repair work submitted as completed by municipal ground team."
+        worker_notes = data.get("worker_notes", "")
+
+    category = report.get("issue_type") or data.get("category", "Road Repair")
 
     try:
         result = nvidia_client.verify_repair_completion(
@@ -3192,14 +3291,6 @@ def api_ai_verify_repair(task_id):
             worker_notes=worker_notes,
             category=category,
         )
-
-        # Update report status if approved
-        if result.get("approved"):
-            conn = sqlite3.connect(DB_PATH)
-            cur = conn.cursor()
-            cur.execute("UPDATE reports SET status = 'AI_APPROVED' WHERE id = ?", (task_id,))
-            conn.commit()
-            conn.close()
 
         return jsonify({"status": "success", "task_id": task_id, "verification": result})
     except Exception as e:
