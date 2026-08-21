@@ -191,26 +191,31 @@ def _get_serverless_sqlite(original_db_path):
     Creates a writable copy of the SQLite DB in /tmp for Vercel.
     """
     tmp_db_path = os.path.join(tempfile.gettempdir(), "reports.db")
+    original_db_path_str = str(original_db_path)
     
     # Copy the bundled db to /tmp if it doesn't exist yet
-    if not os.path.exists(tmp_db_path) and os.path.exists(original_db_path):
+    if not os.path.exists(tmp_db_path) and os.path.exists(original_db_path_str):
         try:
-            shutil.copy2(original_db_path, tmp_db_path)
+            shutil.copy2(original_db_path_str, tmp_db_path)
         except Exception as e:
             print(f"Failed to copy DB to /tmp: {e}")
-            return _original_sqlite_connect(original_db_path)
-            
-    return _original_sqlite_connect(tmp_db_path)
+            return _original_sqlite_connect(original_db_path_str)
 
-def get_db_connection(db_path: str = "reports.db"):
+    if os.path.exists(tmp_db_path):
+        return _original_sqlite_connect(tmp_db_path)
+    else:
+        # Last resort: try original path (may fail on read-only FS)
+        return _original_sqlite_connect(original_db_path_str)
+
+def get_db_connection(db_path="reports.db"):
     """
     Get a database connection. Returns a ConnectionWrapper if
     connected to Supabase, otherwise a standard sqlite3 connection.
     """
     if IS_SUPABASE_ACTIVE:
         try:
-            # Parse connection URL to ensure compatibility
-            conn = psycopg2.connect(SUPABASE_DB_URL)
+            # Use connect_timeout=5 to avoid hanging in Vercel's 10s serverless limit
+            conn = psycopg2.connect(SUPABASE_DB_URL, connect_timeout=5)
             return ConnectionWrapper(conn)
         except Exception as e:
             print(f"Supabase DB connection failed: {e}. Falling back to SQLite.")
