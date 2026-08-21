@@ -468,9 +468,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name })
                 });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Access failed');
-                window.location.href = data.redirect;
+                const data = await parseResponse(res);
+                window.location.href = data.redirect || '/command-center';
             } catch (err) {
                 showError(err.message);
             }

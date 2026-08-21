@@ -413,7 +413,13 @@ def get_home_stats():
 
     # Total reports
     cur.execute("SELECT COUNT(*) FROM reports")
-    total_reports = cur.fetchone()[0]
+    row = cur.fetchone()
+    total_reports = 0
+    if row is not None:
+        try:
+            total_reports = row[0] if isinstance(row, (tuple, list)) else (list(row.values())[0] if hasattr(row, 'values') else row.get('count', 0))
+        except Exception:
+            total_reports = 0
 
     # Aggregate detected issues
     cur.execute("SELECT summary FROM reports")
@@ -422,21 +428,39 @@ def get_home_stats():
     total_potholes = 0
     total_garbage = 0
 
-    for (summary,) in rows:
+    for r in rows:
+        summary = None
+        if isinstance(r, (tuple, list)):
+            summary = r[0]
+        elif hasattr(r, 'get'):
+            summary = r.get('summary')
+        elif hasattr(r, '__getitem__'):
+            try:
+                summary = r['summary']
+            except Exception:
+                summary = None
+
         if summary:
             try:
-                data = json.loads(summary)
-                for key, value in data.items():
-                    if "pothole" in key.lower():
-                        total_potholes += value
-                    elif "garbage" in key.lower():
-                        total_garbage += value
-            except json.JSONDecodeError:
+                data = json.loads(summary) if isinstance(summary, str) else summary
+                if isinstance(data, dict):
+                    for key, value in data.items():
+                        if "pothole" in key.lower():
+                            total_potholes += int(value)
+                        elif "garbage" in key.lower():
+                            total_garbage += int(value)
+            except Exception:
                 continue
 
     # Calculate Dynamic Accuracy based on avg_confidence of all reports
     cur.execute("SELECT AVG(avg_confidence) FROM reports WHERE avg_confidence IS NOT NULL")
-    avg_conf_result = cur.fetchone()[0]
+    avg_row = cur.fetchone()
+    avg_conf_result = None
+    if avg_row is not None:
+        try:
+            avg_conf_result = avg_row[0] if isinstance(avg_row, (tuple, list)) else (list(avg_row.values())[0] if hasattr(avg_row, 'values') else None)
+        except Exception:
+            avg_conf_result = None
 
     if avg_conf_result is not None:
         accuracy = int(avg_conf_result * 100)
