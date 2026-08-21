@@ -836,12 +836,18 @@ def api_login_officer():
         if not row:
             return jsonify({"error": "Invalid Officer ID"}), 401
 
-        # Safe row access - works for both RowWrapper and sqlite3.Row
+        # Safe row access - check for 'keys' to distinguish dict-like rows from tuples
         try:
-            name = row['name'] if hasattr(row, '__getitem__') else row[0]
-            stored_pw = str(row['password'] if hasattr(row, '__getitem__') else row[1]).strip()
-            email = row['email'] if hasattr(row, '__getitem__') else (row[2] if len(row) > 2 else '')
-            dept = row['department'] if hasattr(row, '__getitem__') else (row[3] if len(row) > 3 else '')
+            if hasattr(row, 'keys'):
+                name = row['name']
+                stored_pw = str(row['password']).strip()
+                email = row['email'] if 'email' in row.keys() else ''
+                dept = row['department'] if 'department' in row.keys() else ''
+            else:
+                name = row[0]
+                stored_pw = str(row[1]).strip()
+                email = row[2] if len(row) > 2 else ''
+                dept = row[3] if len(row) > 3 else ''
         except Exception as parse_err:
             error_logger.error(f"Row parsing failed in officer login: {parse_err}")
             return jsonify({"error": "Database row parsing error"}), 500
@@ -959,13 +965,20 @@ def api_login_worker():
         if not row:
             return jsonify({"error": "Invalid Worker ID"}), 401
 
-        # Safe row access - works for both RowWrapper and sqlite3.Row
+        # Safe row access - check for 'keys' to distinguish dict-like rows from tuples
         try:
-            w_id = row['id'] if hasattr(row, '__getitem__') else row[0]
-            name = row['name'] if hasattr(row, '__getitem__') else row[1]
-            stored_pw = str(row['password'] if hasattr(row, '__getitem__') else row[2]).strip()
-            email = row['email'] if hasattr(row, '__getitem__') else (row[3] if len(row) > 3 else '')
-            dept = row['department'] if hasattr(row, '__getitem__') else (row[4] if len(row) > 4 else '')
+            if hasattr(row, 'keys'):
+                w_id = row['id']
+                name = row['name']
+                stored_pw = str(row['password']).strip()
+                email = row['email'] if 'email' in row.keys() else ''
+                dept = row['department'] if 'department' in row.keys() else ''
+            else:
+                w_id = row[0]
+                name = row[1]
+                stored_pw = str(row[2]).strip()
+                email = row[3] if len(row) > 3 else ''
+                dept = row[4] if len(row) > 4 else ''
         except Exception as parse_err:
             error_logger.error(f"Row parsing failed in worker login: {parse_err}")
             return jsonify({"error": "Database row parsing error"}), 500
