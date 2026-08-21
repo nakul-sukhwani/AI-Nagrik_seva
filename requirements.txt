@@ -1,9 +1,10 @@
-ultralytics
-gradio
-pillow
 flask
-pandas
-opencv-python
+flask-cors
+pillow
+opencv-python-headless
 supabase
 psycopg2-binary
 python-dotenv
+openai
+requests
+psutil
