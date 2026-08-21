@@ -2560,25 +2560,34 @@ def api_citizen_report():
         "Submitted"
     ))
 
-    # Also record into reports table if image is available, ensuring admin dashboard sync
-    if image_path:
-        cur.execute("""
-            INSERT INTO reports
-            (image_path, summary, severity, latitude, longitude, created_at, type, department, avg_confidence, latency_ms, class_confidences)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            image_path,
-            json.dumps(ai_summary),
-            ai_severity,
-            latitude,
-            longitude,
-            created_at,
-            'citizen_complaint',
-            department,
-            ai_confidence / 100.0 if ai_confidence else None,
-            120,
-            json.dumps({})
-        ))
+    # Also record into reports table, ensuring full Admin Dashboard sync
+    report_num = f"REP-{datetime.now().strftime('%Y%m%d')}-{random.randint(1000, 9999)}"
+    issue_type_label = "Pothole" if "pothole" in ai_detected.lower() else "Garbage" if "garbage" in ai_detected.lower() else category
+    addr_label = landmark or (f"Lat: {latitude:.4f}°N, Lng: {longitude:.4f}°E" if (latitude and longitude) else "Citizen Portal Submission")
+
+    cur.execute("""
+        INSERT INTO reports
+        (report_number, issue_type, description, address, landmark, latitude, longitude, image_path, summary, severity, status, created_at, type, department, avg_confidence, latency_ms, class_confidences)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        report_num,
+        issue_type_label,
+        f"[{ai_detected}] {description}",
+        addr_label,
+        landmark or "Citizen Portal",
+        latitude or 26.8467,
+        longitude or 80.9462,
+        image_path,
+        json.dumps(ai_summary),
+        ai_severity,
+        'Pending',
+        created_at,
+        'citizen_complaint',
+        department,
+        ai_confidence / 100.0 if ai_confidence else 0.85,
+        120,
+        json.dumps({})
+    ))
 
     conn.commit()
     conn.close()

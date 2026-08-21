@@ -1,0 +1,321 @@
+/* ==========================================================================
+   Samaj Sewa (समाज सेवा) - Citizen Civic Portal Theme
+   ========================================================================== */
+
+:root {
+    --citizen-bg: #0b111e;
+    --citizen-card-bg: rgba(18, 26, 43, 0.75);
+    --citizen-card-border: rgba(255, 255, 255, 0.1);
+    --citizen-primary: #0d6efd;
+    --citizen-accent: #00d2ff;
+    --citizen-success: #198754;
+    --citizen-warning: #ffc107;
+    --citizen-danger: #dc3545;
+    --citizen-text: #f0f4f8;
+    --citizen-text-muted: #94a3b8;
+    --citizen-input-bg: rgba(11, 17, 30, 0.8);
+}
+
+body.citizen-body {
+    background-color: var(--citizen-bg);
+    color: var(--citizen-text);
+    font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+    min-height: 100vh;
+    background-image: 
+        radial-gradient(circle at 10% 20%, rgba(13, 110, 253, 0.12), transparent 30%),
+        radial-gradient(circle at 90% 80%, rgba(0, 210, 255, 0.08), transparent 30%),
+        radial-gradient(circle at 50% 50%, rgba(16, 185, 129, 0.05), transparent 40%);
+    background-attachment: fixed;
+}
+
+/* Custom Navbar */
+.citizen-navbar {
+    background: rgba(11, 17, 30, 0.92);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--citizen-card-border);
+    padding: 0.9rem 1.5rem;
+    position: sticky;
+    top: 0;
+    z-index: 1020;
+}
+
+.brand-badge {
+    background: linear-gradient(135deg, #ff9933 0%, #ffffff 50%, #138808 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 800;
+}
+
+.brand-subtitle {
+    font-size: 0.75rem;
+    color: var(--citizen-text-muted);
+    letter-spacing: 0.5px;
+}
+
+/* Glassmorphism Cards */
+.citizen-card {
+    background: var(--citizen-card-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--citizen-card-border);
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.citizen-card-header {
+    border-bottom: 1px solid var(--citizen-card-border);
+    padding: 1.25rem 1.5rem;
+    background: rgba(255, 255, 255, 0.02);
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
+}
+
+.citizen-card-body {
+    padding: 1.5rem;
+}
+
+/* Category Selection Buttons */
+.category-radio-btn {
+    display: none;
+}
+
+.category-card-label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem 0.5rem;
+    border: 1px solid var(--citizen-card-border);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    height: 100%;
+    color: var(--citizen-text);
+}
+
+.category-card-label i {
+    font-size: 1.6rem;
+    margin-bottom: 0.4rem;
+    color: var(--citizen-accent);
+    transition: transform 0.2s ease;
+}
+
+.category-card-label:hover {
+    background: rgba(13, 110, 253, 0.1);
+    border-color: rgba(13, 110, 253, 0.4);
+    transform: translateY(-2px);
+}
+
+.category-radio-btn:checked + .category-card-label {
+    background: linear-gradient(135deg, rgba(13, 110, 253, 0.25), rgba(0, 210, 255, 0.15));
+    border-color: #0d6efd;
+    box-shadow: 0 0 15px rgba(13, 110, 253, 0.3);
+    color: #ffffff;
+}
+
+.category-radio-btn:checked + .category-card-label i {
+    transform: scale(1.15);
+    color: #00d2ff;
+}
+
+/* Form Controls */
+.citizen-input, .citizen-textarea, .citizen-select {
+    background-color: var(--citizen-input-bg) !important;
+    border: 1px solid var(--citizen-card-border) !important;
+    color: var(--citizen-text) !important;
+    border-radius: 10px !important;
+    padding: 0.65rem 1rem !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+
+.citizen-input:focus, .citizen-textarea:focus, .citizen-select:focus {
+    border-color: var(--citizen-accent) !important;
+    box-shadow: 0 0 0 0.25rem rgba(0, 210, 255, 0.2) !important;
+}
+
+.citizen-input::placeholder, .citizen-textarea::placeholder {
+    color: #64748b !important;
+}
+
+/* Upload Area */
+.citizen-dropzone {
+    border: 2px dashed rgba(0, 210, 255, 0.3);
+    border-radius: 14px;
+    background: rgba(0, 210, 255, 0.02);
+    padding: 2rem 1.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.citizen-dropzone:hover, .citizen-dropzone.dragover {
+    border-color: var(--citizen-accent);
+    background: rgba(0, 210, 255, 0.08);
+    box-shadow: 0 0 20px rgba(0, 210, 255, 0.15);
+}
+
+/* AI Detection Result Panel */
+.ai-results-panel {
+    background: linear-gradient(135deg, rgba(13, 110, 253, 0.1), rgba(16, 185, 129, 0.08));
+    border: 1px solid rgba(0, 210, 255, 0.3);
+    border-radius: 14px;
+    padding: 1.25rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.ai-badge-chip {
+    background: rgba(0, 210, 255, 0.15);
+    color: #38bdf8;
+    border: 1px solid rgba(0, 210, 255, 0.3);
+    border-radius: 20px;
+    padding: 0.3rem 0.8rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.severity-pill-high {
+    background: rgba(220, 53, 69, 0.2);
+    color: #ff6b6b;
+    border: 1px solid rgba(220, 53, 69, 0.4);
+}
+
+.severity-pill-medium {
+    background: rgba(255, 193, 7, 0.2);
+    color: #ffd166;
+    border: 1px solid rgba(255, 193, 7, 0.4);
+}
+
+.severity-pill-low {
+    background: rgba(25, 135, 84, 0.2);
+    color: #51cf66;
+    border: 1px solid rgba(25, 135, 84, 0.4);
+}
+
+/* Map Preview */
+#citizenMap {
+    height: 220px;
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid var(--citizen-card-border);
+}
+
+/* Status Stepper */
+.stepper-wrapper {
+    display: flex;
+    justify-content: space-between;
+    position: relative;
+    margin: 2rem 0 1.5rem;
+}
+
+.stepper-wrapper::before {
+    content: "";
+    position: absolute;
+    top: 20px;
+    left: 40px;
+    right: 40px;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.15);
+    z-index: 1;
+}
+
+.step-item {
+    position: relative;
+    z-index: 2;
+    text-align: center;
+    flex: 1;
+}
+
+.step-circle {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #1e293b;
+    border: 2px solid #475569;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 8px;
+    font-weight: 700;
+    transition: all 0.3s ease;
+}
+
+.step-item.active .step-circle {
+    background: #0d6efd;
+    border-color: #38bdf8;
+    color: #fff;
+    box-shadow: 0 0 15px rgba(13, 110, 253, 0.6);
+}
+
+.step-item.completed .step-circle {
+    background: #198754;
+    border-color: #20c997;
+    color: #fff;
+}
+
+.step-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #94a3b8;
+}
+
+.step-item.active .step-label {
+    color: #38bdf8;
+}
+
+.step-item.completed .step-label {
+    color: #20c997;
+}
+
+/* Quick Nav Tabs */
+.citizen-tabs .nav-link {
+    color: var(--citizen-text-muted);
+    border-radius: 10px;
+    padding: 0.6rem 1.2rem;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.citizen-tabs .nav-link.active {
+    background: rgba(13, 110, 253, 0.2);
+    color: #ffffff;
+    border: 1px solid rgba(13, 110, 253, 0.5);
+}
+
+/* Action Button Glow */
+.btn-citizen-submit {
+    background: linear-gradient(135deg, #0d6efd 0%, #00b4d8 100%);
+    border: none;
+    color: #fff;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    padding: 0.85rem 1.5rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(13, 110, 253, 0.4);
+    transition: all 0.3s ease;
+}
+
+.btn-citizen-submit:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 25px rgba(0, 180, 216, 0.6);
+    color: #fff;
+}
+
+.btn-citizen-submit:disabled {
+    opacity: 0.65;
+    transform: none;
+}
+
+/* Camera Live View */
+#cameraVideo {
+    width: 100%;
+    max-height: 280px;
+    border-radius: 12px;
+    background: #000;
+    object-fit: cover;
+}

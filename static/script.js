@@ -220,12 +220,6 @@ function send(formData) {
                 document.getElementById("expDepartment").innerText = data.explainability.recommended_department;
                 document.getElementById("expPriority").innerText = data.explainability.priority;
                 document.getElementById("expTime").innerText = data.explainability.estimated_cleanup_time;
-
-                const zoneWardEl = document.getElementById("expZoneWard");
-                if (zoneWardEl && data.routing) {
-                    zoneWardEl.innerText = `${data.routing.zone_id} (${data.routing.ward_name || data.routing.ward_id})`;
-                }
-
                 explainabilityBox.classList.remove("d-none");
             } else if (explainabilityBox) {
                 explainabilityBox.classList.add("d-none");
