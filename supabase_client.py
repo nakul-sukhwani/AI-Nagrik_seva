@@ -27,14 +27,27 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL")
 
-# Check if Supabase connection is fully configured
-IS_SUPABASE_ACTIVE = bool(SUPABASE_URL and SUPABASE_KEY and SUPABASE_DB_URL)
+# Separate flags for DB vs Storage — allows Storage to work even without a DB URL
+IS_SUPABASE_DB_ACTIVE = bool(SUPABASE_URL and SUPABASE_KEY and SUPABASE_DB_URL)
+IS_SUPABASE_STORAGE_ACTIVE = bool(SUPABASE_URL and SUPABASE_KEY)
 
-if IS_SUPABASE_ACTIVE:
+# IS_SUPABASE_ACTIVE kept for backward compatibility (True only when DB is also active)
+IS_SUPABASE_ACTIVE = IS_SUPABASE_DB_ACTIVE
+
+if IS_SUPABASE_DB_ACTIVE:
     import psycopg2
     from supabase import create_client, Client
     print("Supabase integration is ACTIVE (PostgreSQL + Cloud Storage).")
     supabase_sdk: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+elif IS_SUPABASE_STORAGE_ACTIVE:
+    # Only Storage is available (no DB URL configured) — use SQLite for DB
+    try:
+        from supabase import create_client, Client
+        supabase_sdk: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        print("Supabase STORAGE is ACTIVE (Cloud image uploads enabled). DB using SQLite fallback.")
+    except Exception as e:
+        supabase_sdk = None
+        print(f"Supabase SDK init failed: {e}. Storage unavailable.")
 else:
     supabase_sdk = None
     print("Supabase credentials missing. Falling back to local SQLite & file storage.")
