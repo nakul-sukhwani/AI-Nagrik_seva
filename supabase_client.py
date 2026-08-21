@@ -10,6 +10,8 @@ locally without any cloud dependencies, while scaling up to Supabase seamlessly.
 """
 
 import os
+import shutil
+import tempfile
 import sqlite3
 import urllib.parse
 from datetime import datetime
@@ -184,6 +186,22 @@ class ConnectionWrapper:
 # API CONNECTION DISPATCHER
 # =====================================================
 
+def _get_serverless_sqlite(original_db_path):
+    """
+    Creates a writable copy of the SQLite DB in /tmp for Vercel.
+    """
+    tmp_db_path = os.path.join(tempfile.gettempdir(), "reports.db")
+    
+    # Copy the bundled db to /tmp if it doesn't exist yet
+    if not os.path.exists(tmp_db_path) and os.path.exists(original_db_path):
+        try:
+            shutil.copy2(original_db_path, tmp_db_path)
+        except Exception as e:
+            print(f"Failed to copy DB to /tmp: {e}")
+            return _original_sqlite_connect(original_db_path)
+            
+    return _original_sqlite_connect(tmp_db_path)
+
 def get_db_connection(db_path: str = "reports.db"):
     """
     Get a database connection. Returns a ConnectionWrapper if
@@ -196,10 +214,10 @@ def get_db_connection(db_path: str = "reports.db"):
             return ConnectionWrapper(conn)
         except Exception as e:
             print(f"Supabase DB connection failed: {e}. Falling back to SQLite.")
-            # Fall back to sqlite if DB_URL is broken
-            return _original_sqlite_connect(db_path)
+            # Fall back to sqlite if DB_URL is broken, using serverless-safe /tmp
+            return _get_serverless_sqlite(db_path)
     else:
-        return _original_sqlite_connect(db_path)
+        return _get_serverless_sqlite(db_path)
 
 
 # =====================================================
