@@ -17,6 +17,7 @@ import random
 # =====================================================
 import os
 import sys
+import tempfile
 import sqlite3
 import json
 import math
@@ -90,12 +91,11 @@ BASE_DIR = Path(__file__).resolve().parent
 
 MODEL_PATH = BASE_DIR / "yolov8m.pt"
 DB_PATH = BASE_DIR / "reports.db"
-LOGS_DIR = BASE_DIR / 'logs'
-REPAIRS_DIR = BASE_DIR / 'static' / 'repairs'
+LOGS_DIR = Path(tempfile.gettempdir()) / 'logs'
+REPAIRS_DIR = Path(tempfile.gettempdir())
 
 try:
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    REPAIRS_DIR.mkdir(parents=True, exist_ok=True)
 except Exception:
     pass
 
@@ -674,8 +674,7 @@ def process_video_frames(video_path: str) -> Tuple[Dict[str, int], List[str], fl
     saved_frames_count = 0
     max_saved_frames = 10 # Limit number of saved frames per video to save space
     
-    reports_dir = BASE_DIR / "static" / "reports"
-    reports_dir.mkdir(parents=True, exist_ok=True)
+    reports_dir = Path(tempfile.gettempdir())
     
     while cap.isOpened():
         ret, frame = cap.read()
@@ -706,12 +705,27 @@ def process_video_frames(video_path: str) -> Tuple[Dict[str, int], List[str], fl
                 # Save this frame as a "highlight"
                 annotated_frame = result.plot()
                 
-                # Save to disk
+                # Save to disk or Supabase
                 filename = f"video_frame_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{saved_frames_count}.jpg"
-                save_path = reports_dir / filename
-                cv2.imwrite(str(save_path), annotated_frame)
                 
-                key_frame_paths.append(f"static/reports/{filename}")
+                saved_to_cloud = False
+                if supabase_client.IS_SUPABASE_ACTIVE:
+                    try:
+                        is_success, buffer = cv2.imencode(".jpg", annotated_frame)
+                        if is_success:
+                            supabase_path = supabase_client.upload_image_to_supabase(buffer.tobytes(), filename, bucket_name="reports")
+                            if supabase_path:
+                                key_frame_paths.append(supabase_path)
+                                saved_to_cloud = True
+                    except Exception as e:
+                        error_logger.error(f"Failed to upload keyframe to Supabase: {e}")
+                
+                if not saved_to_cloud:
+                    # Fallback to serverless-safe /tmp
+                    save_path = reports_dir / filename
+                    cv2.imwrite(str(save_path), annotated_frame)
+                    key_frame_paths.append(str(save_path))
+                
                 saved_frames_count += 1
                 
         frame_count += 1
@@ -1245,8 +1259,9 @@ def predict():
     severity = f"{severity_level} (Score: {combined_score}/100)"
 
     # Save annotated image
-    reports_dir = BASE_DIR / "static" / "reports"
-    reports_dir.mkdir(parents=True, exist_ok=True)
+    # Use serverless-safe /tmp for local fallback
+    reports_dir = Path(tempfile.gettempdir())
+    # reports_dir.mkdir(parents=True, exist_ok=True) # Not needed for /tmp
 
     filename = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
     image_path = reports_dir / filename
@@ -1472,9 +1487,8 @@ def predict_video():
     if not file:
         return jsonify({"error": "No video provided"}), 400
         
-    # Save temp video
-    temp_dir = BASE_DIR / "static" / "temp"
-    temp_dir.mkdir(parents=True, exist_ok=True)
+    # Save temp video to serverless-safe /tmp
+    temp_dir = Path(tempfile.gettempdir())
     temp_path = temp_dir / f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
     file.save(temp_path)
     
@@ -2842,8 +2856,9 @@ def api_citizen_report():
     ai_confidence = 0.0
     department = "Municipal Operations"
 
-    reports_dir = BASE_DIR / "static" / "reports"
-    reports_dir.mkdir(parents=True, exist_ok=True)
+    # Use serverless-safe /tmp for local fallback
+    reports_dir = Path(tempfile.gettempdir())
+    # reports_dir.mkdir(parents=True, exist_ok=True) # Not needed for /tmp
 
     # Check for Image Upload
     image_file = request.files.get("image")
@@ -2901,8 +2916,8 @@ def api_citizen_report():
 
     elif video_file and video_file.filename:
         try:
-            temp_dir = BASE_DIR / "static" / "temp"
-            temp_dir.mkdir(parents=True, exist_ok=True)
+            # Use serverless-safe /tmp
+            temp_dir = Path(tempfile.gettempdir())
             temp_path = temp_dir / f"citizen_video_{complaint_id}_{timestamp_str}.mp4"
             video_file.save(temp_path)
 
@@ -3283,8 +3298,8 @@ def api_worker_submit_repair(task_id):
             file_bytes = file.read()
             after_image_rel_path = supabase_client.upload_image_to_supabase(file_bytes, filename, bucket_name="reports")
         else:
-            save_path = BASE_DIR / "static" / "repairs" / filename
-            save_path.parent.mkdir(parents=True, exist_ok=True)
+            save_path = Path(tempfile.gettempdir()) / filename
+            # No need to mkdir for /tmp
             file.save(save_path)
             after_image_rel_path = f"/static/repairs/{filename}"
     elif base64_data and 'data:image' in base64_data:
@@ -3296,8 +3311,8 @@ def api_worker_submit_repair(task_id):
             if supabase_client.IS_SUPABASE_ACTIVE:
                 after_image_rel_path = supabase_client.upload_image_to_supabase(file_bytes, filename, bucket_name="reports")
             else:
-                save_path = BASE_DIR / "static" / "repairs" / filename
-                save_path.parent.mkdir(parents=True, exist_ok=True)
+                save_path = Path(tempfile.gettempdir()) / filename
+                # No need to mkdir for /tmp
                 with open(save_path, "wb") as fh:
                     fh.write(file_bytes)
                 after_image_rel_path = f"/static/repairs/{filename}"
