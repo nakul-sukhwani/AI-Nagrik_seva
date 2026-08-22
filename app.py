@@ -68,6 +68,7 @@ from dotenv import load_dotenv
 # THIRD-PARTY LIBRARIES
 # =====================================================
 from flask import Flask, redirect, render_template, request, jsonify, Response, send_file, session, url_for, flash
+# pyrefly: ignore [missing-import]
 from werkzeug.security import generate_password_hash, check_password_hash
 from PIL import Image
 
@@ -219,193 +220,299 @@ def init_db():
     """
     Create officers, workers, reports, and report_images tables if they do not exist,
     and migrate missing columns for the Nagrik-Seva AI Admin/Officer Dashboard.
+    Works with both PostgreSQL (Supabase) and SQLite (local/fallback).
     """
-    if supabase_client.IS_SUPABASE_ACTIVE:
-        print("⚡ Supabase is active. Skipping local SQLite schema initialization.")
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        is_postgres = supabase_client.IS_SUPABASE_ACTIVE and isinstance(conn, supabase_client.ConnectionWrapper)
+    except Exception as e:
+        print(f"init_db: Failed to get DB connection: {e}")
         return
 
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    # 1. Officers Table
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS officers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT UNIQUE NOT NULL,
-            phone TEXT,
-            profile_image_url TEXT,
-            officer_id TEXT UNIQUE NOT NULL,
-            designation TEXT,
-            department TEXT,
-            zone_id TEXT,
-            ward_id TEXT,
-            role TEXT DEFAULT 'Ward Officer',
-            status TEXT DEFAULT 'Active',
-            password TEXT,
-            created_at TEXT,
-            updated_at TEXT,
-            last_login_at TEXT
-        )
-    """)
-
-    # Officers Migration: Add password column if it doesn't exist
-    cur.execute("PRAGMA table_info(officers)")
-    officer_columns = [info[1] for info in cur.fetchall()]
-    if 'password' not in officer_columns:
-        print("⚠️ Migrating database: Adding 'password' column to officers...")
-        cur.execute("ALTER TABLE officers ADD COLUMN password TEXT")
-
-    # 1.b Workers Table
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS workers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT UNIQUE NOT NULL,
-            worker_id TEXT UNIQUE NOT NULL,
-            department TEXT NOT NULL,
-            password TEXT NOT NULL,
-            created_at TEXT
-        )
-    """)
-
-
-    # 2. Reports Table
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS reports (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            image_path TEXT NOT NULL,
-            summary TEXT,
-            severity TEXT,
-            latitude REAL,
-            longitude REAL,
-            created_at TEXT,
-            feedback TEXT DEFAULT NULL,
-            type TEXT DEFAULT 'image'
-        )
-    """)
-    
-    # Check existing columns in reports table
-    cur.execute("PRAGMA table_info(reports)")
-    columns = [info[1] for info in cur.fetchall()]
-
-    new_cols = [
-        ('type', "TEXT DEFAULT 'image'"),
-        ('feedback', "TEXT DEFAULT NULL"),
-        ('department', "TEXT DEFAULT 'General'"),
-        ('avg_confidence', "REAL DEFAULT NULL"),
-        ('latency_ms', "REAL DEFAULT NULL"),
-        ('class_confidences', "TEXT DEFAULT NULL"),
-        ('report_number', "TEXT DEFAULT NULL"),
-        ('citizen_id', "TEXT DEFAULT 'CIT-1001'"),
-        ('issue_type', "TEXT DEFAULT 'Civic Issue'"),
-        ('description', "TEXT DEFAULT NULL"),
-        ('status', "TEXT DEFAULT 'Pending'"),
-        ('address', "TEXT DEFAULT NULL"),
-        ('landmark', "TEXT DEFAULT NULL"),
-        ('zone_id', "TEXT DEFAULT 'Zone-4 (North)'"),
-        ('ward_id', "TEXT DEFAULT 'Ward-12'"),
-        ('assigned_officer_id', "INTEGER DEFAULT 1"),
-        ('updated_at', "TEXT DEFAULT NULL"),
-        ('upvotes', "INTEGER DEFAULT 1"),
-        ('is_escalated', "BOOLEAN DEFAULT 0"),
-        ('materials_needed', "TEXT DEFAULT NULL"),
-        ('manpower_estimate', "TEXT DEFAULT NULL"),
-        ('impact_reasoning', "TEXT DEFAULT NULL"),
-        ('estimated_affected_people', "TEXT DEFAULT NULL"),
-        ('scale', "TEXT DEFAULT NULL"),
-        ('severity_level', "TEXT DEFAULT NULL")
-    ]
-
-    for col_name, col_def in new_cols:
-        if col_name not in columns:
-            print(f"⚠️ Migrating database: Adding '{col_name}' column to reports...")
-            cur.execute(f"ALTER TABLE reports ADD COLUMN {col_name} {col_def}")
-
-    # 3. Report Images Table
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS report_images (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            report_id INTEGER NOT NULL,
-            storage_path TEXT NOT NULL,
-            public_or_signed_url TEXT NOT NULL,
-            file_name TEXT,
-            mime_type TEXT,
-            file_size INTEGER,
-            latitude REAL,
-            longitude REAL,
-            captured_at TEXT,
-            uploaded_at TEXT,
-            FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
-        )
-    """)
-
-    # 4. Migrate missing data and assign true Lucknow Zone & Ward for existing reports
-    cur.execute("SELECT id, image_path, summary, latitude, longitude, created_at, report_number, address, landmark, zone_id, ward_id FROM reports")
-    reports_rows = cur.fetchall()
-    for row in reports_rows:
-        r_id, r_img, r_sum, r_lat, r_lng, r_created, r_num, r_addr, r_land, r_zone, r_ward = row
-        
-        # Populate report_number if missing
-        gen_num = r_num or f"REP-2026-{r_id:04d}"
-        
-        # Determine issue type from summary
-        issue_type = "Civic Issue"
-        description = "Reported civic issue detected via AI visual scan."
-        if r_sum:
-            try:
-                s_data = json.loads(r_sum)
-                keys = [k.capitalize() for k in s_data.keys()]
-                if keys:
-                    issue_type = ", ".join(keys)
-                    description = f"Automated detection of {issue_type} in civic area."
-            except Exception:
-                pass
-
-        addr = r_addr
-        landmark = r_land
-        if not addr or addr == "Location unavailable" or not landmark:
-            if r_lat is not None and r_lng is not None:
-                addr, landmark = reverse_geocode(r_lat, r_lng)
-
-        # Resolve true Lucknow Ward & Zone based on coordinates / reverse geocoded address
-        ward_zone_info = lucknow_wards.assign_ward_and_zone(
-            lat=r_lat,
-            lng=r_lng,
-            address_text=addr,
-            landmark_text=landmark
-        )
-        resolved_zone = ward_zone_info["zone_id"]
-        resolved_ward = ward_zone_info["ward_id"]
-
-        cur.execute("""
-            UPDATE reports
-            SET report_number = ?, issue_type = ?, description = ?, address = ?, landmark = ?, zone_id = ?, ward_id = ?, updated_at = ?
-            WHERE id = ?
-        """, (gen_num, issue_type, description, addr, landmark, resolved_zone, resolved_ward, r_created or datetime.now().isoformat(), r_id))
-
-        # Ensure report image entry exists in report_images
-        cur.execute("SELECT COUNT(*) FROM report_images WHERE report_id = ?", (r_id,))
-        if cur.fetchone()[0] == 0 and r_img:
-            file_name = os.path.basename(r_img)
+    try:
+        if is_postgres:
+            # ── PostgreSQL (Supabase) ─────────────────────────────────────────
+            # Use SERIAL for auto-increment; IF NOT EXISTS keeps this idempotent.
             cur.execute("""
-                INSERT INTO report_images (report_id, storage_path, public_or_signed_url, file_name, mime_type, file_size, latitude, longitude, captured_at, uploaded_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                r_id,
-                r_img,
-                f"/{r_img}" if not r_img.startswith('/') else r_img,
-                file_name,
-                "image/png" if file_name.endswith(".png") else "image/jpeg",
-                102400, # default size
-                r_lat,
-                r_lng,
-                r_created or datetime.now().isoformat(),
-                r_created or datetime.now().isoformat()
-            ))
+                CREATE TABLE IF NOT EXISTS officers (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    email TEXT UNIQUE NOT NULL,
+                    phone TEXT,
+                    profile_image_url TEXT,
+                    officer_id TEXT UNIQUE NOT NULL,
+                    designation TEXT,
+                    department TEXT,
+                    zone_id TEXT,
+                    ward_id TEXT,
+                    role TEXT DEFAULT 'Ward Officer',
+                    status TEXT DEFAULT 'Active',
+                    password TEXT,
+                    created_at TEXT,
+                    updated_at TEXT,
+                    last_login_at TEXT
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS workers (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    email TEXT UNIQUE NOT NULL,
+                    worker_id TEXT UNIQUE NOT NULL,
+                    department TEXT NOT NULL,
+                    password TEXT NOT NULL,
+                    created_at TEXT
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS reports (
+                    id SERIAL PRIMARY KEY,
+                    image_path TEXT NOT NULL,
+                    summary TEXT,
+                    severity TEXT,
+                    latitude REAL,
+                    longitude REAL,
+                    created_at TEXT,
+                    feedback TEXT DEFAULT NULL,
+                    type TEXT DEFAULT 'image',
+                    department TEXT DEFAULT 'General',
+                    avg_confidence REAL DEFAULT NULL,
+                    latency_ms REAL DEFAULT NULL,
+                    class_confidences TEXT DEFAULT NULL,
+                    report_number TEXT DEFAULT NULL,
+                    citizen_id TEXT DEFAULT 'CIT-1001',
+                    issue_type TEXT DEFAULT 'Civic Issue',
+                    description TEXT DEFAULT NULL,
+                    status TEXT DEFAULT 'Pending',
+                    address TEXT DEFAULT NULL,
+                    landmark TEXT DEFAULT NULL,
+                    zone_id TEXT DEFAULT 'Zone-4 (North)',
+                    ward_id TEXT DEFAULT 'Ward-12',
+                    assigned_officer_id INTEGER DEFAULT 1,
+                    updated_at TEXT DEFAULT NULL,
+                    upvotes INTEGER DEFAULT 1,
+                    is_escalated BOOLEAN DEFAULT FALSE,
+                    materials_needed TEXT DEFAULT NULL,
+                    manpower_estimate TEXT DEFAULT NULL,
+                    impact_reasoning TEXT DEFAULT NULL,
+                    estimated_affected_people TEXT DEFAULT NULL,
+                    scale TEXT DEFAULT NULL,
+                    severity_level TEXT DEFAULT NULL
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS report_images (
+                    id SERIAL PRIMARY KEY,
+                    report_id INTEGER NOT NULL,
+                    storage_path TEXT NOT NULL,
+                    public_or_signed_url TEXT NOT NULL,
+                    file_name TEXT,
+                    mime_type TEXT,
+                    file_size INTEGER,
+                    latitude REAL,
+                    longitude REAL,
+                    captured_at TEXT,
+                    uploaded_at TEXT,
+                    FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+                )
+            """)
+            # Migrate missing columns in Postgres using information_schema
+            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'officers'")
+            officer_cols = [r[0] for r in cur.fetchall()]
+            if 'password' not in officer_cols:
+                cur.execute("ALTER TABLE officers ADD COLUMN password TEXT")
+            conn.commit()
+            conn.close()
+            print("⚡ Supabase PostgreSQL schema initialized / verified.")
+            return
 
-    conn.commit()
-    conn.close()
+        # ── SQLite (local or /tmp fallback) ──────────────────────────────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS officers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                phone TEXT,
+                profile_image_url TEXT,
+                officer_id TEXT UNIQUE NOT NULL,
+                designation TEXT,
+                department TEXT,
+                zone_id TEXT,
+                ward_id TEXT,
+                role TEXT DEFAULT 'Ward Officer',
+                status TEXT DEFAULT 'Active',
+                password TEXT,
+                created_at TEXT,
+                updated_at TEXT,
+                last_login_at TEXT
+            )
+        """)
+
+        # Officers Migration: Add password column if it doesn't exist
+        cur.execute("PRAGMA table_info(officers)")
+        officer_columns = [info[1] for info in cur.fetchall()]
+        if 'password' not in officer_columns:
+            print("⚠️ Migrating database: Adding 'password' column to officers...")
+            cur.execute("ALTER TABLE officers ADD COLUMN password TEXT")
+
+        # 1.b Workers Table
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS workers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                worker_id TEXT UNIQUE NOT NULL,
+                department TEXT NOT NULL,
+                password TEXT NOT NULL,
+                created_at TEXT
+            )
+        """)
+
+
+        # 2. Reports Table
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                image_path TEXT NOT NULL,
+                summary TEXT,
+                severity TEXT,
+                latitude REAL,
+                longitude REAL,
+                created_at TEXT,
+                feedback TEXT DEFAULT NULL,
+                type TEXT DEFAULT 'image'
+            )
+        """)
+        
+        # Check existing columns in reports table
+        cur.execute("PRAGMA table_info(reports)")
+        columns = [info[1] for info in cur.fetchall()]
+
+        new_cols = [
+            ('type', "TEXT DEFAULT 'image'"),
+            ('feedback', "TEXT DEFAULT NULL"),
+            ('department', "TEXT DEFAULT 'General'"),
+            ('avg_confidence', "REAL DEFAULT NULL"),
+            ('latency_ms', "REAL DEFAULT NULL"),
+            ('class_confidences', "TEXT DEFAULT NULL"),
+            ('report_number', "TEXT DEFAULT NULL"),
+            ('citizen_id', "TEXT DEFAULT 'CIT-1001'"),
+            ('issue_type', "TEXT DEFAULT 'Civic Issue'"),
+            ('description', "TEXT DEFAULT NULL"),
+            ('status', "TEXT DEFAULT 'Pending'"),
+            ('address', "TEXT DEFAULT NULL"),
+            ('landmark', "TEXT DEFAULT NULL"),
+            ('zone_id', "TEXT DEFAULT 'Zone-4 (North)'"),
+            ('ward_id', "TEXT DEFAULT 'Ward-12'"),
+            ('assigned_officer_id', "INTEGER DEFAULT 1"),
+            ('updated_at', "TEXT DEFAULT NULL"),
+            ('upvotes', "INTEGER DEFAULT 1"),
+            ('is_escalated', "BOOLEAN DEFAULT 0"),
+            ('materials_needed', "TEXT DEFAULT NULL"),
+            ('manpower_estimate', "TEXT DEFAULT NULL"),
+            ('impact_reasoning', "TEXT DEFAULT NULL"),
+            ('estimated_affected_people', "TEXT DEFAULT NULL"),
+            ('scale', "TEXT DEFAULT NULL"),
+            ('severity_level', "TEXT DEFAULT NULL")
+        ]
+
+        for col_name, col_def in new_cols:
+            if col_name not in columns:
+                print(f"⚠️ Migrating database: Adding '{col_name}' column to reports...")
+                cur.execute(f"ALTER TABLE reports ADD COLUMN {col_name} {col_def}")
+
+        # 3. Report Images Table
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS report_images (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_id INTEGER NOT NULL,
+                storage_path TEXT NOT NULL,
+                public_or_signed_url TEXT NOT NULL,
+                file_name TEXT,
+                mime_type TEXT,
+                file_size INTEGER,
+                latitude REAL,
+                longitude REAL,
+                captured_at TEXT,
+                uploaded_at TEXT,
+                FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+            )
+        """)
+
+        # 4. Migrate missing data and assign true Lucknow Zone & Ward for existing reports
+        cur.execute("SELECT id, image_path, summary, latitude, longitude, created_at, report_number, address, landmark, zone_id, ward_id FROM reports")
+        reports_rows = cur.fetchall()
+        for row in reports_rows:
+            r_id, r_img, r_sum, r_lat, r_lng, r_created, r_num, r_addr, r_land, r_zone, r_ward = row
+            
+            # Populate report_number if missing
+            gen_num = r_num or f"REP-2026-{r_id:04d}"
+            
+            # Determine issue type from summary
+            issue_type = "Civic Issue"
+            description = "Reported civic issue detected via AI visual scan."
+            if r_sum:
+                try:
+                    s_data = json.loads(r_sum)
+                    keys = [k.capitalize() for k in s_data.keys()]
+                    if keys:
+                        issue_type = ", ".join(keys)
+                        description = f"Automated detection of {issue_type} in civic area."
+                except Exception:
+                    pass
+
+            addr = r_addr
+            landmark = r_land
+            if not addr or addr == "Location unavailable" or not landmark:
+                if r_lat is not None and r_lng is not None:
+                    addr, landmark = reverse_geocode(r_lat, r_lng)
+
+            # Resolve true Lucknow Ward & Zone based on coordinates / reverse geocoded address
+            ward_zone_info = lucknow_wards.assign_ward_and_zone(
+                lat=r_lat,
+                lng=r_lng,
+                address_text=addr,
+                landmark_text=landmark
+            )
+            resolved_zone = ward_zone_info["zone_id"]
+            resolved_ward = ward_zone_info["ward_id"]
+
+            cur.execute("""
+                UPDATE reports
+                SET report_number = ?, issue_type = ?, description = ?, address = ?, landmark = ?, zone_id = ?, ward_id = ?, updated_at = ?
+                WHERE id = ?
+            """, (gen_num, issue_type, description, addr, landmark, resolved_zone, resolved_ward, r_created or datetime.now().isoformat(), r_id))
+
+            # Ensure report image entry exists in report_images
+            cur.execute("SELECT COUNT(*) FROM report_images WHERE report_id = ?", (r_id,))
+            if cur.fetchone()[0] == 0 and r_img:
+                file_name = os.path.basename(r_img)
+                cur.execute("""
+                    INSERT INTO report_images (report_id, storage_path, public_or_signed_url, file_name, mime_type, file_size, latitude, longitude, captured_at, uploaded_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    r_id,
+                    r_img,
+                    f"/{r_img}" if not r_img.startswith('/') else r_img,
+                    file_name,
+                    "image/png" if file_name.endswith(".png") else "image/jpeg",
+                    102400, # default size
+                    r_lat,
+                    r_lng,
+                    r_created or datetime.now().isoformat(),
+                    r_created or datetime.now().isoformat()
+                ))
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"init_db error: {e}")
+        try:
+            conn.rollback()
+            conn.close()
+        except Exception:
+            pass
 
 # Initialize database on startup
 init_db()

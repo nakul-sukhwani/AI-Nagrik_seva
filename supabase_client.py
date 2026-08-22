@@ -201,7 +201,9 @@ class ConnectionWrapper:
 
 def _get_serverless_sqlite(original_db_path):
     """
-    Creates a writable copy of the SQLite DB in /tmp for Vercel.
+    Creates a writable SQLite DB in /tmp for Vercel serverless.
+    If a bundled DB exists, copies it. Otherwise creates a fresh empty DB.
+    This handles the case where reports.db is excluded from the Vercel bundle.
     """
     tmp_db_path = os.path.join(tempfile.gettempdir(), "reports.db")
     original_db_path_str = str(original_db_path)
@@ -210,15 +212,46 @@ def _get_serverless_sqlite(original_db_path):
     if not os.path.exists(tmp_db_path) and os.path.exists(original_db_path_str):
         try:
             shutil.copy2(original_db_path_str, tmp_db_path)
+            print(f"Copied DB from {original_db_path_str} to {tmp_db_path}")
         except Exception as e:
             print(f"Failed to copy DB to /tmp: {e}")
-            return _original_sqlite_connect(original_db_path_str)
 
     if os.path.exists(tmp_db_path):
         return _original_sqlite_connect(tmp_db_path)
     else:
-        # Last resort: try original path (may fail on read-only FS)
-        return _original_sqlite_connect(original_db_path_str)
+        # No source DB exists (e.g. excluded from Vercel bundle) — create a fresh empty DB in /tmp.
+        # The app's init_db() will create all tables on first startup.
+        print(f"No source DB found at {original_db_path_str}. Creating fresh empty DB at {tmp_db_path}")
+        return _original_sqlite_connect(tmp_db_path)
+
+def _sanitize_db_url(url):
+    """
+    Remove query parameters that psycopg2 cannot parse (e.g. pgbouncer=true
+    from Supabase's transaction-mode pooler connection string).
+    psycopg2 only understands standard libpq DSN parameters.
+    """
+    if not url or '?' not in url:
+        return url
+    from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+    parsed = urlparse(url)
+    # Only keep params that psycopg2/libpq understand
+    ALLOWED_PARAMS = {
+        'sslmode', 'sslcert', 'sslkey', 'sslrootcert', 'sslcrl',
+        'connect_timeout', 'application_name', 'options',
+        'fallback_application_name', 'keepalives', 'keepalives_idle',
+        'keepalives_interval', 'keepalives_count', 'tcp_user_timeout',
+        'target_session_attrs', 'krbsrvname', 'gsslib', 'passfile',
+        'channel_binding', 'load_balance_hosts', 'hostaddr', 'port',
+        'host', 'dbname', 'user', 'password',
+    }
+    params = parse_qs(parsed.query, keep_blank_values=True)
+    filtered = {k: v for k, v in params.items() if k in ALLOWED_PARAMS}
+    new_query = urlencode(filtered, doseq=True)
+    sanitized = urlunparse(parsed._replace(query=new_query))
+    if sanitized != url:
+        print(f"DB URL sanitized: removed unsupported query parameters (e.g. pgbouncer).")
+    return sanitized
+
 
 def get_db_connection(db_path="reports.db"):
     """
@@ -227,8 +260,10 @@ def get_db_connection(db_path="reports.db"):
     """
     if IS_SUPABASE_ACTIVE:
         try:
+            # Strip unsupported query params (e.g. ?pgbouncer=true) before connecting
+            clean_url = _sanitize_db_url(SUPABASE_DB_URL)
             # Use connect_timeout=5 to avoid hanging in Vercel's 10s serverless limit
-            conn = psycopg2.connect(SUPABASE_DB_URL, connect_timeout=5)
+            conn = psycopg2.connect(clean_url, connect_timeout=5)
             return ConnectionWrapper(conn)
         except Exception as e:
             print(f"Supabase DB connection failed: {e}. Falling back to SQLite.")
