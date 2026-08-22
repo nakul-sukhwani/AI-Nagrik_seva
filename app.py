@@ -1171,7 +1171,7 @@ def api_login_user():
     session['name'] = name
     session['citizen_id'] = f"CIT-{random.randint(1000, 9999)}"
 
-    return jsonify({"status": "success", "redirect": "/command-center"})
+    return jsonify({"status": "success", "redirect": "/citizen"})
 
 
 @app.route("/logout")

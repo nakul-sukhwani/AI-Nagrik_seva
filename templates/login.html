@@ -469,7 +469,7 @@
                     body: JSON.stringify({ name })
                 });
                 const data = await parseResponse(res);
-                window.location.href = 'https://ai-nagrik-sahayak.vercel.app/command-center';
+                window.location.href = data.redirect || '/citizen';
             } catch (err) {
                 showError(err.message);
             }
