@@ -25,7 +25,7 @@
           </div>
         {% endif %}
 
-        <form action="{{ url_for('worker_login') }}" method="POST">
+        <form action="/api/auth/login-worker" method="POST">
           <div class="mb-3">
             <label for="worker_id" class="form-label fw-bold text-dark fs-7">
               <i class="fas fa-id-badge me-1 text-primary"></i> Worker ID / Username

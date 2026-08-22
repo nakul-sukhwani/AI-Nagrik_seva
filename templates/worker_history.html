@@ -10,7 +10,7 @@
     </h3>
     <p class="text-muted small mb-0">Record of all submitted field repair reports and before/after verification evidence.</p>
   </div>
-  <a href="{{ url_for('worker_dashboard') }}" class="btn btn-outline-secondary btn-sm rounded-pill align-self-start align-self-md-auto">
+  <a href="/worker-dashboard" class="btn btn-outline-secondary btn-sm rounded-pill align-self-start align-self-md-auto">
     <i class="fas fa-arrow-left me-1"></i> Back to Dashboard
   </a>
 </div>
@@ -69,7 +69,7 @@
 
         <div class="d-flex justify-content-between align-items-center fs-8 text-muted border-top pt-2">
           <span><i class="fas fa-calendar-alt me-1"></i> Completed: {{ item.submitted_at[:10] if item.submitted_at else 'Recent' }}</span>
-          <a href="{{ url_for('worker_task_detail', task_id=item.id) }}" class="btn btn-outline-primary btn-sm rounded-pill px-3">
+          <a href="/worker/task/item.id" class="btn btn-outline-primary btn-sm rounded-pill px-3">
             Full Details <i class="fas fa-arrow-right ms-1"></i>
           </a>
         </div>
@@ -86,7 +86,7 @@
   <h4 class="fw-bold text-dark">No Completed Work Yet</h4>
   <p class="text-muted small">As you complete and submit repair reports for your assigned issues, they will appear here with before/after evidence.</p>
   <div>
-    <a href="{{ url_for('worker_dashboard') }}" class="btn btn-primary rounded-pill px-4">
+    <a href="/worker-dashboard" class="btn btn-primary rounded-pill px-4">
       Go to Assigned Tasks
     </a>
   </div>

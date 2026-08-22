@@ -6,7 +6,7 @@
 <div class="row g-4">
   <!-- Back Link & Task Title -->
   <div class="col-12 d-flex justify-content-between align-items-center">
-    <a href="{{ url_for('worker_dashboard') }}" class="btn btn-outline-secondary btn-sm rounded-pill">
+    <a href="/worker-dashboard" class="btn btn-outline-secondary btn-sm rounded-pill">
       <i class="fas fa-arrow-left me-1"></i> Back to Dashboard
     </a>
     <span class="badge-status badge-{{ task.status.lower() if task.status else 'assigned' }} fs-6">
@@ -86,7 +86,7 @@
       <p class="text-muted small max-w-md mx-auto mb-4">
         Clicking <strong>"Start Repair"</strong> will update this task status to <span class="badge bg-warning text-dark">IN_PROGRESS</span> and open the Repair Documentation & After-Image submission form.
       </p>
-      <form action="{{ url_for('worker_start_task', task_id=task.id) }}" method="POST">
+      <form action="/api/worker/tasks/task.id/start" method="POST">
         <button type="submit" class="btn btn-warning btn-lg px-5 fw-bold rounded-pill shadow-sm">
           <i class="fas fa-play me-2"></i> Start Repair Task
         </button>
@@ -103,7 +103,7 @@
 
       <div class="card-body p-4 bg-white">
         
-        <form action="{{ url_for('worker_submit_repair', task_id=task.id) }}" method="POST" enctype="multipart/form-data" id="repairReportForm">
+        <form action="/api/worker/tasks/task.id/submit-repair" method="POST" enctype="multipart/form-data" id="repairReportForm">
           
           <!-- Hidden Inputs for Form Processing -->
           <input type="hidden" name="problems_faced" id="problems_faced_hidden" value="{{ repair_report.problems_faced if repair_report else '' }}">

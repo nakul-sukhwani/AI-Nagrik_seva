@@ -89,16 +89,16 @@
   </h4>
 
   <div class="btn-group btn-group-sm rounded-pill shadow-sm bg-white p-1 border">
-    <a href="{{ url_for('worker_tasks', status='all') }}" class="btn btn-outline-primary rounded-pill px-3 {% if not current_filter or current_filter == 'all' %}active{% endif %}">
+    <a href="/worker/tasks?status=all" class="btn btn-outline-primary rounded-pill px-3 {% if not current_filter or current_filter == 'all' %}active{% endif %}">
       All Tasks
     </a>
-    <a href="{{ url_for('worker_tasks', status='assigned') }}" class="btn btn-outline-primary rounded-pill px-3 {% if current_filter == 'assigned' %}active{% endif %}">
+    <a href="/worker/tasks?status=assigned" class="btn btn-outline-primary rounded-pill px-3 {% if current_filter == 'assigned' %}active{% endif %}">
       Assigned
     </a>
-    <a href="{{ url_for('worker_tasks', status='in_progress') }}" class="btn btn-outline-primary rounded-pill px-3 {% if current_filter == 'in_progress' %}active{% endif %}">
+    <a href="/worker/tasks?status=in_progress" class="btn btn-outline-primary rounded-pill px-3 {% if current_filter == 'in_progress' %}active{% endif %}">
       In Progress
     </a>
-    <a href="{{ url_for('worker_tasks', status='submitted') }}" class="btn btn-outline-primary rounded-pill px-3 {% if current_filter in ['submitted', 'completed'] %}active{% endif %}">
+    <a href="/worker/tasks?status=submitted" class="btn btn-outline-primary rounded-pill px-3 {% if current_filter in ['submitted', 'completed'] %}active{% endif %}">
       Submitted
     </a>
   </div>
@@ -158,7 +158,7 @@
       </div>
 
       <div class="task-card-footer">
-        <a href="{{ url_for('worker_task_detail', task_id=task.id) }}" class="btn btn-outline-primary btn-sm w-100 fw-bold rounded-pill">
+        <a href="/worker/task/task.id" class="btn btn-outline-primary btn-sm w-100 fw-bold rounded-pill">
           <i class="fas fa-folder-open me-1"></i> View Task & Repair Report
         </a>
       </div>
@@ -174,7 +174,7 @@
   <h4 class="fw-bold text-dark">No Tasks Found</h4>
   <p class="text-muted small">You currently have no tasks matching the selected filter.</p>
   <div>
-    <a href="{{ url_for('worker_tasks', status='all') }}" class="btn btn-primary btn-sm rounded-pill px-4">
+    <a href="/worker/tasks?status=all" class="btn btn-primary btn-sm rounded-pill px-4">
       Show All Assigned Tasks
     </a>
   </div>
