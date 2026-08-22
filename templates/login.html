@@ -469,7 +469,7 @@
                     body: JSON.stringify({ name })
                 });
                 const data = await parseResponse(res);
-                window.location.href = data.redirect || '/command-center';
+                window.location.href = 'https://ai-nagrik-sahayak.vercel.app/command-center';
             } catch (err) {
                 showError(err.message);
             }
