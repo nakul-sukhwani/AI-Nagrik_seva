@@ -20,7 +20,7 @@
   <!-- Desktop Web Header & Navigation Bar -->
   <nav class="navbar navbar-expand-lg navbar-dark worker-navbar sticky-top">
     <div class="container-fluid px-4">
-      <a class="worker-brand text-decoration-none" href="/worker-dashboard">
+      <a class="worker-brand text-decoration-none" href="/worker/dashboard">
         <i class="fas fa-city text-warning fs-4"></i>
         <div class="d-flex flex-column leading-none">
           <span class="fs-5 fw-bold text-white">Nagrik-Seva</span>
@@ -36,7 +36,7 @@
         {% if current_worker %}
         <ul class="navbar-nav me-auto mb-2 mb-lg-0 ms-lg-4 gap-lg-1">
           <li class="nav-item">
-            <a class="nav-link px-3 rounded-2 {% if request.path == '/worker-dashboard' %}active fw-bold text-white bg-white bg-opacity-10{% endif %}" href="/worker-dashboard">
+            <a class="nav-link px-3 rounded-2 {% if request.path == '/worker/dashboard' %}active fw-bold text-white bg-white bg-opacity-10{% endif %}" href="/worker/dashboard">
               <i class="fas fa-chart-line me-1"></i> Dashboard
             </a>
           </li>

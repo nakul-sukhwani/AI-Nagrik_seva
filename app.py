@@ -886,7 +886,7 @@ def index():
     if session.get('officer_logged_in'):
         return redirect('/dashboard')
     elif session.get('worker_logged_in'):
-        return redirect('/worker-dashboard')
+        return redirect('/worker/dashboard')
     elif session.get('user_logged_in'):
         return redirect('/command-center')
     return render_template("login.html")
@@ -1149,7 +1149,7 @@ def api_login_worker():
         session['email'] = email
         session['department'] = dept
         
-        return jsonify({"status": "success", "redirect": "/worker-dashboard"})
+        return jsonify({"status": "success", "redirect": "/worker/dashboard"})
     except Exception as e:
         error_logger.error(f"Worker login error: {str(e)}")
         return jsonify({"error": "Authentication server error"}), 500
@@ -1183,16 +1183,6 @@ def logout():
 # =====================================================
 # FIELD WORKER DASHBOARD & APIs
 # =====================================================
-
-@app.route("/worker-dashboard")
-def worker_dashboard_view():
-    """
-    Field Worker Dashboard Page.
-    """
-    if not session.get('worker_logged_in'):
-        return redirect('/')
-    return render_template("worker_dashboard.html")
-
 
 def enrich_with_sla(reports):
     from datetime import datetime
