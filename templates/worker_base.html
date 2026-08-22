@@ -36,7 +36,7 @@
         {% if current_worker %}
         <ul class="navbar-nav me-auto mb-2 mb-lg-0 ms-lg-4 gap-lg-1">
           <li class="nav-item">
-            <a class="nav-link px-3 rounded-2 {% if request.path == url_for('worker_dashboard') %}active fw-bold text-white bg-white bg-opacity-10{% endif %}" href="/worker-dashboard">
+            <a class="nav-link px-3 rounded-2 {% if request.path == '/worker-dashboard' %}active fw-bold text-white bg-white bg-opacity-10{% endif %}" href="/worker-dashboard">
               <i class="fas fa-chart-line me-1"></i> Dashboard
             </a>
           </li>
@@ -46,12 +46,12 @@
             </a>
           </li>
           <li class="nav-item">
-            <a class="nav-link px-3 rounded-2 {% if request.path == url_for('worker_history') %}active fw-bold text-white bg-white bg-opacity-10{% endif %}" href="/worker/history">
+            <a class="nav-link px-3 rounded-2 {% if request.path == '/worker/history' %}active fw-bold text-white bg-white bg-opacity-10{% endif %}" href="/worker/history">
               <i class="fas fa-check-double me-1"></i> Completed Work
             </a>
           </li>
           <li class="nav-item">
-            <a class="nav-link px-3 rounded-2 {% if request.path == url_for('worker_profile') %}active fw-bold text-white bg-white bg-opacity-10{% endif %}" href="/worker/profile">
+            <a class="nav-link px-3 rounded-2 {% if request.path == '/worker/profile' %}active fw-bold text-white bg-white bg-opacity-10{% endif %}" href="/worker/profile">
               <i class="fas fa-user-circle me-1"></i> Profile & Ward
             </a>
           </li>
